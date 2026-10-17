@@ -52,6 +52,8 @@ DeepSeek's 1017 update ships the same config, index and tokenizer as the Septemb
 
 ## Three Sparks: the EXL3 TP3 lane
 
+> **Release note:** this lane was built and benched on the September V4.1 Flash release (bot-lab-21's EXL3 build of its experts). It has not been run on DeepSeek-V4.1-Flash-1017, which is what the 4-Spark lane serves now (see [runs/2026-10-17-1017](runs/2026-10-17-1017/)). There is no EXL3 build of 1017 yet.
+
 The same model on **three** DGX Sparks instead of four, using bot-lab-21's [EXL3 3.5 bpw build](https://huggingface.co/bot-lab-21/DeepSeek-V4.1-Flash-EXL3-3.5bpw-Pollard) of the routed experts (everything else is the release's FP8). V4.1 had no TP3 path in vLLM, so this lane adds one: virtual attention heads (64 padded to 72), a vocabulary split that works at TP3, Engram rows for three ranks, a streaming weight loader, and a fix that lets the DSpark drafter's 128 experts load on three ranks. The full write-up, with every boot and what failed, is in [docs/EXL3-TP3.md](docs/EXL3-TP3.md).
 
 Serving config (exl3tp3a11): CUDA graphs, DSpark k=5, vision, 300K context, gmu 0.80. Same prompt set and bench as boot 10; throughput across the 8 prompt categories:
