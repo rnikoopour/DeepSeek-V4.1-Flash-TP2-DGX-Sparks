@@ -23,6 +23,8 @@
 | 69-scenario tool eval (thinking off, 2026-10-18 03:31 UTC) | **Quality 97.1** (134/138; 66 pass, 2 partial, 1 fail), responsiveness 97.8 (median turn 932 ms), deployability 97.3, throughput 86.0 tok/s decode ([results/eval69/eval69-tf1017.md](results/eval69/eval69-tf1017.md)). Native vLLM 1017g scored 98.6 (67/2/0) at 43.0 tok/s. The one fail, TC-57 ("how do I kill a Linux process using port 8080"), is the suite's keyword check tripping on "won't" in "escalate to -9 if it won't die" inside a fully helpful answer, not a refusal; the two partials are TC-44 and TC-67, the same two as on the vLLM lanes |
 | Fleet-compat checks on :8000 ([tools/fleet_check.py](tools/fleet_check.py); [tailnet](logs/fleet_check_tailnet.log) and [LAN](logs/fleet_check_lan.log)) | all PASS: `/v1/models` lists both names, `/health`, non-streaming and `stream:true` SSE chat, tool call with `tool_choice: auto` (plain and streamed), no `max_tokens`, image input, `Authorization: Bearer <anything>` or none, `/v1/completions`, 6 concurrent chats (about 205-223 tok/s aggregate); rerun on both rails with the patched engine, tailnet and LAN, all PASS ([log](logs/fleet_check_tailnet_p4.log)) |
 | Sampling behavior on :8000 ([tools/sampling_check.py](tools/sampling_check.py), [log](logs/sampling_check.log)) | all PASS with patch 0004: six identical requests with no seed give different outputs; `seed: 7` twice is identical and different seeds differ; temperature 0 is deterministic; `top_k` of -1, 0, 100, 56, 1, 20 and null all return 200; `top_p` with `min_p` and no `top_k` returns 200 |
+| Recipe acceptance gates ([results/gates/gates.json](results/gates/gates.json), run on the live endpoint, no restart) | 6 of 6 pass: models, chat probe (17 x 19 = 323), streamed reasoning (reasoning and content both arrive), tool call plain and streamed with the tool-result reply, **drafted == serial 8 of 8** (greedy replies with DSpark drafts equal the same request with `draft: false`, token for token), burst of 4 (121 tok/s aggregate) |
+| Concurrent == solo ([tools/concurrent_check.py](tools/concurrent_check.py), [log](logs/concurrent_check.log)) | 8 of 8 prompts identical, greedy, one at a time vs all at once (a light stand-in for the recipe's long-prompt version, which would stall live traffic and was not run) |
 
 ### Documented gaps of the chat template
 
@@ -35,7 +37,7 @@ Also by design: `tools` go on the first system message (an empty one is added if
 
 | item | state |
 |---|---|
-| Recipe gates (`tools/gates.py` of the recipe: drafted == plain, concurrent == solo) | not run yet |
+| Recipe long-prompt gates (`tools/long_check.py` of the recipe: concurrent == solo and kept-prompt reuse at long lengths) | not run; they send several 100K-token prompts and would stall the live endpoint |
 | `TF_DS_PROMPT_SP=rows` (reported +12-17% prefill) | not applied; the reference code is not public |
 
 ## Thinking controls on the fleet endpoint (as measured, `tools/fleet_check.py`)

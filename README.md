@@ -8,7 +8,7 @@ The default lane is built on TensorFold, bertholomus's DeepSeek-V4.1 TP4 fork, r
 
 DeepSeek-V4.1-Flash-1017 as LibertAI's EXL3 3.5 bpw pack, served by TensorFold's Zig engine, one tensor-parallel rank per Spark, context 1,048,576, 16 streams, DSpark drafts on. On the standard bench (prompt set v1, temperature 0, thinking off) it reaches 89.8 tok/s aggregate at one stream against 48.5 for the native-weights vLLM lane (1.85x) and 36.0 for the full-EXL3 vLLM lane, and 202.9 tok/s at six streams against 165.7 (+22%) and 115.8. Cold prefill is 1,929 tok/s at 93K tokens, against 2,201 on native vLLM (12% lower). Run record: [runs/2026-10-17-1017-tensorfold](runs/2026-10-17-1017-tensorfold/).
 
-Validated so far (details under [Status and pending checks](#status-and-pending-checks)): the chat template (byte-exact against DeepSeek's reference encoder), chat, tool calling, tool-result round trips, thinking on request and image input through `/v1/chat/completions`, needle prompts from 20K to 500K tokens, and the 69-scenario tool eval (97.1, 66 pass / 2 partial / 1 fail, against 98.6 on native vLLM). With the second RoCE rail on, it reaches 93.6 tok/s at one stream and 213.8 at six, and reads a 93K-token prompt at 2,215 tok/s, level with native vLLM. Since 2026-10-18 03:36 UTC this lane serves our fleet endpoint. Still pending: the recipe's consistency gates.
+Validated so far (details under [Status and pending checks](#status-and-pending-checks)): the chat template (byte-exact against DeepSeek's reference encoder), chat, tool calling, tool-result round trips, thinking on request and image input through `/v1/chat/completions`, needle prompts from 20K to 500K tokens, and the 69-scenario tool eval (97.1, 66 pass / 2 partial / 1 fail, against 98.6 on native vLLM). With the second RoCE rail on, it reaches 93.6 tok/s at one stream and 213.8 at six, and reads a 93K-token prompt at 2,215 tok/s, level with native vLLM. Since 2026-10-18 03:36 UTC this lane serves our fleet endpoint. The recipe's consistency gates pass (details in the status table).
 
 ### What is in the lane
 
@@ -137,7 +137,7 @@ The exact scripts we ran, with every setting, are in the run folder: [runs/2026-
 | Chat, tool calling, image input | done ([`tools/sanity.py`](runs/2026-10-17-1017-tensorfold/tools/sanity.py)): chat, the `glm-5.3-flash` alias, a tool call (`finish_reason: tool_calls`), a tool-result round trip, thinking on request, and image input all pass |
 | Second RoCE rail | done: both rails striped, +5% decode and +15% long-prompt prefill (table above) |
 | Fleet endpoint | live since 2026-10-18 03:36 UTC on `0.0.0.0:8000` with [`config.fleet-8000-rail2-p4.env`](runs/2026-10-17-1017-tensorfold/launch/config.fleet-8000-rail2-p4.env): both rails, patch 0004, names `deepseek-v4.1-flash` and `glm-5.3-flash`, thinking off by default; [`tools/fleet_check.py`](runs/2026-10-17-1017-tensorfold/tools/fleet_check.py) passes (models, health, streaming, tool calls, images, auth variants, 6 concurrent) |
-| Recipe consistency gates (drafted == plain, concurrent == solo) | **pending** |
+| Recipe consistency gates | done on the live endpoint, no restart: the recipe's `gates.py` passes 6 of 6 (models, chat probe, streamed reasoning, tool call plain and streamed, drafted == serial 8 of 8 token for token, burst of 4). Concurrent == solo: a light stand-in ([`tools/concurrent_check.py`](runs/2026-10-17-1017-tensorfold/tools/concurrent_check.py)) gives 8 of 8 identical; the recipe's long-prompt version was not run on the live endpoint |
 
 ### Files
 
