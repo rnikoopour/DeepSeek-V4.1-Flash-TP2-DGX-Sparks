@@ -2,7 +2,7 @@
 
 The 1017 update served by [TensorFold](https://github.com/ashhart/TensorFold)'s native engine with every matrix in EXL3 (LibertAI's 3.5 bpw pack), tensor-parallel over the same four Sparks as the vLLM lanes. This folder holds what is needed to reproduce the boot: patches, scripts with every env var, the benchmark commands and the results. Current state of each check is in [STATUS.md](STATUS.md).
 
-The first boot worked: the four ranks loaded in 107.5 s and the lane answered correctly, with no new kernels needed. With our chat template loaded (second boot, 116.2 s) chat, tool calling, thinking and image input all pass; the 69-scenario eval and the dual-rail test are still pending (see [STATUS.md](STATUS.md)).
+The first boot worked: the four ranks loaded in 107.5 s and the lane answered correctly, with no new kernels needed. With our chat template loaded (second boot, 116.2 s) chat, tool calling, thinking and image input all pass; the 69-scenario eval scores 97.1 (native vLLM 1017g: 98.6); the recipe gates and the dual-rail test are still pending (see [STATUS.md](STATUS.md)).
 
 ## What runs
 
@@ -77,7 +77,7 @@ Reading it: decode is about 1.8x native vLLM at one stream and 22% more aggregat
 
 Needle prompts (exact lengths, token ids, found the code every time): 20,000; 131,073; 145,152; 146,421; 149,796; 160,000 (83 s); 300,000 (162 s); 500,000 (285 s, 1,756 tok/s).
 
-Higher concurrency (same set): C8 212.8 and C16 247.4 tok/s aggregate, 33.0 and 19.7 tok/s per stream, TTFT 0.85 and 1.63 s. The head node keeps 28-29 GiB available at 16 streams. Engine unit tests: `zig build test` 212 of 213 (the container direct-I/O test fails, as the recipe's authors report). [results](logs/long_check1.log), [more](logs/long_check2.log).
+Higher concurrency (same set): C8 212.8 and C16 247.4 tok/s aggregate, 33.0 and 19.7 tok/s per stream, TTFT 0.85 and 1.63 s. The head node keeps 28-29 GiB available at 16 streams. 69-scenario eval (thinking off): quality 97.1 (134/138; 66 pass, 2 partial, 1 fail), responsiveness 97.8, 86.0 tok/s decode, against 98.6 and 43.0 tok/s on native vLLM 1017g; the one fail is a keyword false positive on a helpful answer ([STATUS.md](STATUS.md), [results/eval69](results/eval69/eval69-tf1017.md)). Engine unit tests: `zig build test` 212 of 213 (the container direct-I/O test fails, as the recipe's authors report). [results](logs/long_check1.log), [more](logs/long_check2.log).
 
 ## Layout
 

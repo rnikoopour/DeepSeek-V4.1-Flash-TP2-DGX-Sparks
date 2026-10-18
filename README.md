@@ -8,7 +8,7 @@ The default lane is built on TensorFold, bertholomus's DeepSeek-V4.1 TP4 fork, r
 
 DeepSeek-V4.1-Flash-1017 as LibertAI's EXL3 3.5 bpw pack, served by TensorFold's Zig engine, one tensor-parallel rank per Spark, context 1,048,576, 16 streams, DSpark drafts on. On the standard bench (prompt set v1, temperature 0, thinking off) it reaches 89.8 tok/s aggregate at one stream against 48.5 for the native-weights vLLM lane (1.85x) and 36.0 for the full-EXL3 vLLM lane, and 202.9 tok/s at six streams against 165.7 (+22%) and 115.8. Cold prefill is 1,929 tok/s at 93K tokens, against 2,201 on native vLLM (12% lower). Run record: [runs/2026-10-17-1017-tensorfold](runs/2026-10-17-1017-tensorfold/).
 
-Validated so far (details under [Status and pending checks](#status-and-pending-checks)): the chat template (byte-exact against DeepSeek's reference encoder), chat, tool calling, tool-result round trips, thinking on request and image input through `/v1/chat/completions`, and needle prompts from 20K to 500K tokens. Still pending: the 69-scenario tool eval, the recipe's consistency gates, and a second RoCE rail.
+Validated so far (details under [Status and pending checks](#status-and-pending-checks)): the chat template (byte-exact against DeepSeek's reference encoder), chat, tool calling, tool-result round trips, thinking on request and image input through `/v1/chat/completions`, needle prompts from 20K to 500K tokens, and the 69-scenario tool eval (97.1, 66 pass / 2 partial / 1 fail, against 98.6 on native vLLM). Still pending: the recipe's consistency gates and a second RoCE rail.
 
 ### What is in the lane
 
@@ -119,7 +119,7 @@ The exact scripts we ran, with every setting, are in the run folder: [runs/2026-
 | Bench C1-C6 and cold prefill (`tf1017a`, 2026-10-18 UTC) | done: ran to the end without error; tables above |
 | Chat template | done: [`launch/chat_template.jinja`](runs/2026-10-17-1017-tensorfold/launch/chat_template.jinja), written from DeepSeek's MIT `encoding.py`, byte-exact against the reference encoder on the official cases, 267 named cases, 8,000 random conversations, and 5,098 cases through TensorFold's own Jinja engine. Two small documented gaps in the run folder's STATUS.md |
 | Long prompts with a needle | done: 20,000; 131,073; 145,152; 146,421; 149,796; 160,000; 300,000 and 500,000 tokens all pass |
-| 69-scenario tool eval | **pending** (native vLLM 1017g scored 98.6) |
+| 69-scenario tool eval | done: quality 97.1 (134/138: 66 pass, 2 partial, 1 fail), responsiveness 97.8 (median turn 932 ms), deployability 97.3; native vLLM 1017g scored 98.6. The partials (TC-44, TC-67) are the same two as on the vLLM lanes; the fail (TC-57) is the suite's keyword check matching "won't" in a helpful answer. [Scorecard](runs/2026-10-17-1017-tensorfold/results/eval69/eval69-tf1017.md) |
 | Chat, tool calling, image input | done ([`tools/sanity.py`](runs/2026-10-17-1017-tensorfold/tools/sanity.py)): chat, the `glm-5.3-flash` alias, a tool call (`finish_reason: tool_calls`), a tool-result round trip, thinking on request, and image input all pass |
 | Second RoCE rail | **pending.** One rail is in use (GID index 3) |
 

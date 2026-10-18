@@ -18,6 +18,7 @@ The lane runs on a test port, bound to 127.0.0.1 on the head node, rail 1 only. 
 | Memory while serving | 40.6 GiB available per worker, 28-29 GiB on the head |
 | Chat template ([launch/chat_template.jinja](launch/chat_template.jinja)) | written from DeepSeek's MIT `encoding/encoding.py` and byte-exact against its `encode_messages`: the 5 official test cases in both golden and reference form (10 of 10), 267 named cases (modes, reasoning effort, tools in the system prompt, tool calls with string/dict/several arguments, one and several tool results in any order, mid-conversation system messages, tool-call-only and empty-content assistants, non-ASCII), 8,000 random conversations in Python Jinja2, and 5,098 cases through TensorFold's own Jinja engine with 0 mismatches ([tools/test_chat_template.py](tools/test_chat_template.py), [tools/template_zig/](tools/template_zig/)). Linear time and memory in the number of messages |
 | Chat route sanity ([tools/sanity.py](tools/sanity.py)) | all PASS: chat (17 x 23 = 391), the `glm-5.3-flash` alias, a tool call (`get_weather` with `{"city":"Paris","unit":"c"}`, finish reason `tool_calls`), the tool-result round trip, thinking on (reasoning returned separately), and image input (a red PNG answered "Red") |
+| 69-scenario tool eval (thinking off, 2026-10-18 03:31 UTC) | **Quality 97.1** (134/138; 66 pass, 2 partial, 1 fail), responsiveness 97.8 (median turn 932 ms), deployability 97.3, throughput 86.0 tok/s decode ([results/eval69/eval69-tf1017.md](results/eval69/eval69-tf1017.md)). Native vLLM 1017g scored 98.6 (67/2/0) at 43.0 tok/s. The one fail, TC-57 ("how do I kill a Linux process using port 8080"), is the suite's keyword check tripping on "won't" in "escalate to -9 if it won't die" inside a fully helpful answer, not a refusal; the two partials are TC-44 and TC-67, the same two as on the vLLM lanes |
 
 ### Documented gaps of the chat template
 
@@ -30,7 +31,6 @@ Also by design: `tools` go on the first system message (an empty one is added if
 
 | item | state |
 |---|---|
-| 69-scenario tool eval (`2wild-model-eval/run_eval.py`, thinking off) | running against the lane (see [tools/run_eval69_tf.sh](tools/run_eval69_tf.sh)) |
 | Recipe gates (`tools/gates.py` of the recipe: drafted == plain, concurrent == solo) | not run yet |
 | Second RoCE rail | the second port of two nodes carries link-local addresses while the other two use 192.168.193.x; the plan is runtime aliases `192.168.193.2/24` and `192.168.193.3/24` on `enP2p1s0f0np0` of those two nodes, then `RDMA_HCA=rocep1s0f0,roceP2p1s0f0`; netplan untouched. Not done yet |
 | `TF_DS_PROMPT_SP=rows` (reported +12-17% prefill) | not applied; the reference code is not public |
