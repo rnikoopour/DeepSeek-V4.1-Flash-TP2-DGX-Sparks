@@ -9,7 +9,7 @@ The first boot worked: the four ranks loaded in 107.5 s and the lane answered co
 | piece | what | source |
 |---|---|---|
 | engine | TensorFold native engine, DeepSeek-V4.1 four-node (2D split) build | [bertholomus/TensorFold](https://github.com/bertholomus/TensorFold), branch `deepseek-v41-zig-tp4`, commit `5940208` (a fork of [ashhart/TensorFold](https://github.com/ashhart/TensorFold), Apache-2.0) |
-| engine patches | three local commits on top, see [patches/](patches/) | `47a8910` and `b8ae0c7` are commits already public on the fork's `deepseek-v41-zig` branch; `TF_RDMA_GID` is ours |
+| engine patches | four local commits on top, see [patches/](patches/) | `47a8910` and `b8ae0c7` are commits already public on the fork's `deepseek-v41-zig` branch; `TF_RDMA_GID` and the sampling seed / `top_k` change (0004) are ours |
 | recipe, scripts, kernel kit | `scripts/serve.sh` (used unmodified), `kit/` (Triton + EXL3 kernel binaries), `tools/` | [bertholomus/deepseek-v4.1-tensorfold-tp4-4xgb10](https://github.com/bertholomus/deepseek-v4.1-tensorfold-tp4-4xgb10) tag v0.1.1 (Apache-2.0) |
 | weights | all matrices EXL3 (mul1 codebook): routed experts 4 bpw on layers 0-9 and 30-39, 3 bpw on 10-29, everything else 6 bpw (indexer `wk` 8 bpw), 240 GB | [LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-3.5bpw](https://huggingface.co/LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-3.5bpw) (MIT) |
 | Engram tables | shards 47 and 48 of the 1017 base checkpoint, a full local copy on every node (2 x 101.5 GB) | [deepseek-ai/DeepSeek-V4.1-Flash-1017](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017) (MIT) |
@@ -31,13 +31,13 @@ Credits for the people behind each piece are in [CREDITS.md](../../CREDITS.md) (
 Everything runs from Reddie (rank 0) as the user that owns the shared node-to-node ssh key; the other three are workers. Node order (rank): Reddie 0, Spark4 1, Asusi 2, Bluey 3 (ranks 0-1 and 2-3 are the 2D split's pairs). Fabric: rail 1 `enp1s0f0np0` 192.168.192.0/24, HCA `rocep1s0f0`, RoCE v2 GID index 3 (the recipe's default of 5 does not exist on these ports).
 
 1. **Image**: `docker pull nvcr.io/nvidia/pytorch:26.07-py3` on all four nodes.
-2. **Engine**: [launch/setup.sh](launch/setup.sh) fetches Zig 0.17.0 and clones the fork and the recipe; apply the patches (`git am patches/*.patch` on `5940208`); [launch/run_build.sh](launch/run_build.sh) + [launch/build.sh](launch/build.sh) build in the container (about 2 min): `zig build install native -Dtarget=aarch64-linux-gnu.2.28 -Doptimize=ReleaseFast -Dnvcc=/usr/local/cuda/bin/nvcc -Dsm=121`. `ENGINE_DIR` = `tensorfold-native`, `tf-dsv41-lanes`, `tf-dsv41-rank-cache`, `node_inputs.sh`, `make_token_map.py` and `rdma_gather.fatbin` (the engine's own `dsv41_rdma` fatbin from the zig cache).
+2. **Engine**: [launch/setup.sh](launch/setup.sh) fetches Zig 0.17.0 and clones the fork and the recipe; apply the patches (`git am patches/*.patch` on `5940208`, four commits); [launch/run_build.sh](launch/run_build.sh) + [launch/build.sh](launch/build.sh) build in the container (about 2 min): `zig build install native -Dtarget=aarch64-linux-gnu.2.28 -Doptimize=ReleaseFast -Dnvcc=/usr/local/cuda/bin/nvcc -Dsm=121`. `ENGINE_DIR` = `tensorfold-native`, `tf-dsv41-lanes`, `tf-dsv41-rank-cache`, `node_inputs.sh`, `make_token_map.py` and `rdma_gather.fatbin` (the engine's own `dsv41_rdma` fatbin from the zig cache).
 3. **Weights**: `HF_HUB_DISABLE_XET=1 hf download LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-3.5bpw --local-dir <MODELS>/DeepSeek-V4.1-Flash-1017-EXL3-3.5bpw` (240 GB, on the head node, shared to workers over NFS), and the base 1017 checkpoint for its Engram shards.
 4. **Engram**: [launch/copy_engram.sh](launch/copy_engram.sh) puts shards 47/48 on every worker's local NVMe (Reddie hardlinks them); the engine reads rows by offset, so the tables must be local.
 5. **Model dir for the runtime** (`MODEL_DIR`, same path on every node): `config.json`, `tokenizer*.json`, `model.safetensors.index.json`, `encoding/`, the pack's shards 43 and 44 (the vision tower), and `chat_template.jinja`. [launch/distribute_model.sh](launch/distribute_model.sh).
 6. **Kit**: `kit/` from the recipe, plus `launch/kitverify.sh` (makes the four RoPE tables and the bias file, then checks the manifest). Copy to `KIT_DIR` on every node ([launch/distribute.sh](launch/distribute.sh)).
 7. **Per-node inputs** (no GPU, about 6 min, all four at once): [launch/inputs_r0.sh](launch/inputs_r0.sh) on the head and [launch/inputs_worker.sh](launch/inputs_worker.sh) `RANK` on the workers: `node_inputs.sh MODEL CACHE RANK` writes `rank-cache/rank<R>of4-<hash>.bin` (68.9 GB) and `dsv41_token_map.json`.
-8. **Serve**: [launch/config.env](launch/config.env) is the recipe's `config.env` for this cluster (every env var is in it); [launch/start1.sh](launch/start1.sh) runs the recipe's `scripts/serve.sh start` (ranks 3, 2, 1, then 0, then a chat check). The lane runs as the `tp4-lane` container on each node; logs in `LOG_DIR/tp4-lane.log`. [launch/precheck.sh](launch/precheck.sh) checks free RAM, containers and rank caches before a boot.
+8. **Serve**: [launch/config.env](launch/config.env) is the recipe's `config.env` for this cluster, test-port variant (every env var is in it; the fleet-endpoint variants are `config.fleet-8000.env`, `config.fleet-8000-rail2.env` and `config.fleet-8000-rail2-p4.env`, see STATUS.md); [launch/start1.sh](launch/start1.sh) runs the recipe's `scripts/serve.sh start` (ranks 3, 2, 1, then 0, then a chat check). The lane runs as the `tp4-lane` container on each node; logs in `LOG_DIR/tp4-lane.log`. [launch/precheck.sh](launch/precheck.sh) checks free RAM, containers and rank caches before a boot.
 9. **Bench**: [launch/run_bench.sh](launch/run_bench.sh) `LABEL [--levels ...] [--prefill ...]` runs [tools/v41bench_tf.py](tools/v41bench_tf.py), which is `/root/v41bench.py` (same prompt set `v1`, concurrency barrier, unique tags, usage-block token counts, cold prefill method) with one change: prompts are encoded with `encoding.py` and sent to `/v1/completions`. `--chat` switches to `/v1/chat/completions` (the template is loaded in the lane from the second boot on). [tools/sanity.py](tools/sanity.py) checks chat, the alias, a tool call and its round trip, thinking and image input on the chat route; [tools/run_eval69_tf.sh](tools/run_eval69_tf.sh) runs the 69-scenario eval. Long prompts: [tools/long_check.py](tools/long_check.py) (exact-length prompts sent as token ids, with a needle).
 
 Memory per node while serving (16 streams, 1,048,576-token window, 2,097,152-position pool): model 71.87 GiB; 40.6 GiB available on the workers, 28-29 GiB on the head.
@@ -78,6 +78,29 @@ Reading it: decode is about 1.8x native vLLM at one stream and 22% more aggregat
 Needle prompts (exact lengths, token ids, found the code every time): 20,000; 131,073; 145,152; 146,421; 149,796; 160,000 (83 s); 300,000 (162 s); 500,000 (285 s, 1,756 tok/s).
 
 Higher concurrency (same set): C8 212.8 and C16 247.4 tok/s aggregate, 33.0 and 19.7 tok/s per stream, TTFT 0.85 and 1.63 s. The head node keeps 28-29 GiB available at 16 streams. 69-scenario eval (thinking off): quality 97.1 (134/138; 66 pass, 2 partial, 1 fail), responsiveness 97.8, 86.0 tok/s decode, against 98.6 and 43.0 tok/s on native vLLM 1017g; the one fail is a keyword false positive on a helpful answer ([STATUS.md](STATUS.md), [results/eval69](results/eval69/eval69-tf1017.md)). Engine unit tests: `zig build test` 212 of 213 (the container direct-I/O test fails, as the recipe's authors report). [results](logs/long_check1.log), [more](logs/long_check2.log).
+
+## Benchmark: both RoCE rails (`tf1017b-rail2`)
+
+The same set, run on the live fleet endpoint after adding the second rail ([launch/rail2.sh](launch/rail2.sh): runtime addresses `192.168.193.2/24` and `192.168.193.3/24` on the two nodes whose second port had only a link-local address; `RDMA_HCA=rocep1s0f0,roceP2p1s0f0`). Tables: [results/tf1017b-rail2/](results/tf1017b-rail2/).
+
+| | rail 1 (`tf1017a`) | **both rails (`tf1017b-rail2`)** | native vLLM `boot1017g` |
+|---|---|---|---|
+| C1 aggregate tok/s | 89.8 | **93.6** | 48.5 |
+| C2 / C3 | 132.8 / 159.0 | **136.9 / 167.3** | 76.6 / 102.6 |
+| C4 / C5 | 180.3 / 192.9 | **189.3 / 202.1** | 123.2 / 144.6 |
+| C6 | 202.9 | **213.8** | 165.7 |
+| C1 per-stream | 101.8 | **107.1** | 53.8 |
+| TTFT C1 / C6 (s) | 0.19 / 0.67 | 0.19 / 0.66 | 0.28 / 0.45 |
+| cold prefill, 2,950 tokens (tok/s) | 1,613 | 1,585 | 1,903 |
+| 11,592 tokens | 1,873 | **2,140** | 1,937 |
+| 46,810 tokens | 1,894 | **2,181** | 2,194 |
+| 93,335 tokens (tok/s, seconds) | 1,929 (48.4 s) | **2,215 (42.1 s)** | 2,201 (42 s) |
+
+C1 per-stream by category on both rails: code 143.5, format 144.4, JSON 113.5, math 127.0, reasoning 103.2, prose 80.9, summary 73.5, narrative 70.8, counting 170.4. During this run both rails received the same traffic (569 MB/s each on the head node). Decode gains about 5%, long-prompt prefill about 15%, which brings prefill level with native vLLM at 46K and 93K tokens.
+
+## Fleet endpoint (:8000)
+
+Since 2026-10-18 03:36 UTC this lane serves the fleet endpoint (0.0.0.0:8000, names `deepseek-v4.1-flash` and `glm-5.3-flash`, thinking off by default, no API key); it now runs on both rails with patch 0004 and the sampling defaults temperature 1.0, top_p 1.0, top_k 20: `launch/start_fleet_rail2_p4.sh` with `launch/config.fleet-8000-rail2-p4.env`. The client-side checks the fleet depends on (model list, `/health`, SSE streaming, tool calls, thinking controls, images, concurrency) are in [tools/fleet_check.py](tools/fleet_check.py) with logs in [logs/](logs/); the thinking-control behavior is tabulated in [STATUS.md](STATUS.md). Startup output of the four ranks: [logs/boot-fleet/](logs/boot-fleet/).
 
 ## Layout
 

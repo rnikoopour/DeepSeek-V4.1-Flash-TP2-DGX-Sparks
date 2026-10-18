@@ -1,0 +1,12 @@
+{"vision": "Pillow 12.3.0 decodes the formats other than PNG"}
+[tensorfold] warning: non-loopback server has no API key; requests are open
+[tensorfold] CUDA sm_121 device 0 (NVIDIA GB10, memory shared with the host): model 71.87 GiB; 16 streams at once, 0.00 GiB each at a 1048576-token window, of 2.4 GiB left after a 12.2 GiB reserve; prompts in 2048-row chunks
+[tensorfold] serving deepseek-v4.1-flash at http://0.0.0.0:8000/v1 (sampling: greedy; drafts: on; context: 1048576; loaded in 116.5s)
+info: prompt cache: 7 tokens, resumed at 0, kept 0; 0 states, 0 MiB and 0 MiB spare of 512 MiB (hits 0, misses 1, evicted 0, refused 0, failed 0)
+[tensorfold] done chatcmpl-f3980265aff0f8820514304980faf061 prompt=7 cached=0 thinking=False effort=none tokens=2 sha=207398c96af1 finish=stop rounds=1 accepted=1/2
+info: prompt cache: 253 tokens, resumed at 0, kept 0; 0 states, 0 MiB and 0 MiB spare of 512 MiB (hits 0, misses 2, evicted 0, refused 0, failed 0)
+[tensorfold] done chatcmpl-eed833a68dbe54760981643e3ee2ed72 prompt=253 cached=0 thinking=False effort=none tokens=4 sha=d0f091c77eaa finish=stop rounds=1 accepted=2/2
+info: prompt cache: 15 tokens, resumed at 0, kept 0; 0 states, 0 MiB and 0 MiB spare of 512 MiB (hits 0, misses 3, evicted 0, refused 0, failed 0)
+[tensorfold] done chatcmpl-57a49ee2efe0c2e245b85442bd2bd39f prompt=15 cached=0 thinking=False effort=none tokens=16 sha=8e0f4b5f6ab4 finish=stop rounds=4 accepted=12/17
+info: prompt cache: 7 tokens, resumed at 0, kept 0; 0 states, 0 MiB and 0 MiB spare of 512 MiB (hits 0, misses 4, evicted 0, refused 0, failed 0)
+[tensorfold] done chatcmpl-3f61f0c8e5e78045feb531c006640bf9 prompt=7 cached=0 thinking=False effort=none tokens=12 sha=89c926c78d60 finish=stop rounds=3 accepted=9/14

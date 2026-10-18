@@ -8,7 +8,7 @@ The default lane is built on TensorFold, bertholomus's DeepSeek-V4.1 TP4 fork, r
 
 DeepSeek-V4.1-Flash-1017 as LibertAI's EXL3 3.5 bpw pack, served by TensorFold's Zig engine, one tensor-parallel rank per Spark, context 1,048,576, 16 streams, DSpark drafts on. On the standard bench (prompt set v1, temperature 0, thinking off) it reaches 89.8 tok/s aggregate at one stream against 48.5 for the native-weights vLLM lane (1.85x) and 36.0 for the full-EXL3 vLLM lane, and 202.9 tok/s at six streams against 165.7 (+22%) and 115.8. Cold prefill is 1,929 tok/s at 93K tokens, against 2,201 on native vLLM (12% lower). Run record: [runs/2026-10-17-1017-tensorfold](runs/2026-10-17-1017-tensorfold/).
 
-Validated so far (details under [Status and pending checks](#status-and-pending-checks)): the chat template (byte-exact against DeepSeek's reference encoder), chat, tool calling, tool-result round trips, thinking on request and image input through `/v1/chat/completions`, needle prompts from 20K to 500K tokens, and the 69-scenario tool eval (97.1, 66 pass / 2 partial / 1 fail, against 98.6 on native vLLM). Still pending: the recipe's consistency gates and a second RoCE rail.
+Validated so far (details under [Status and pending checks](#status-and-pending-checks)): the chat template (byte-exact against DeepSeek's reference encoder), chat, tool calling, tool-result round trips, thinking on request and image input through `/v1/chat/completions`, needle prompts from 20K to 500K tokens, and the 69-scenario tool eval (97.1, 66 pass / 2 partial / 1 fail, against 98.6 on native vLLM). With the second RoCE rail on, it reaches 93.6 tok/s at one stream and 213.8 at six, and reads a 93K-token prompt at 2,215 tok/s, level with native vLLM. Since 2026-10-18 03:36 UTC this lane serves our fleet endpoint. Still pending: the recipe's consistency gates.
 
 ### What is in the lane
 
@@ -84,6 +84,20 @@ Prefill is 3 to 15% below native vLLM across the four lengths (12% at 93K) and a
 
 While serving at 1,048,576 context and 16 streams, each worker had 40.6 GiB available and the head node 29 GiB. The load and boot figures measure different intervals (TensorFold: weights loaded on the four ranks; vLLM: kick to serving).
 
+**Second RoCE rail** ([`results/tf1017b-rail2/`](runs/2026-10-17-1017-tensorfold/results/tf1017b-rail2/), same prompt set, run on the live endpoint, so other traffic may have moved a cell slightly). Both rails carry equal traffic during the bench.
+
+| | rail 1 only | both rails | change |
+|---|---|---|---|
+| C1 aggregate tok/s | 89.8 | **93.6** | +4.2% |
+| C6 aggregate tok/s | 202.9 | **213.8** | +5.4% |
+| C1 code, per stream | 134.8 | **143.5** | +6.5% |
+| cold prefill, 11,592 tokens | 1,873 | **2,140** | +14% |
+| cold prefill, 93,335 tokens | 1,929 (48.4 s) | **2,215 (42.1 s)** | +15% |
+
+Against native vLLM 1017g (48.5 / 165.7, prefill 2,201 at 93K) the dual-rail lane is 1.93x at one stream, +29% at six, and level on long-prompt prefill. The rail-2 setup is runtime IP aliases on the second port of two nodes plus `RDMA_HCA` with both HCAs ([`launch/rail2_all.sh`](runs/2026-10-17-1017-tensorfold/launch/rail2_all.sh), re-added on every start by [`start_fleet_rail2_p4.sh`](runs/2026-10-17-1017-tensorfold/launch/start_fleet_rail2_p4.sh)); persistent network config is not changed.
+
+**Sampling on the fleet endpoint.** Server defaults `--temperature 1.0 --top-p 1.0 --top-k 20` (the model README recommends 1.0 / 1.0; the engine's exact sampler takes 1 <= top_k <= 56). Patch [`0004`](runs/2026-10-17-1017-tensorfold/patches/) adds two opt-in server settings: `TF_SEED_RANDOM=1` gives a request without a `seed` a random one (otherwise the engine derives the seed from the prompt, so identical requests return identical text), and `TF_TOP_K_MAX=56` treats `top_k <= 0` as the server default and clamps larger values instead of returning an error. An explicit `seed` stays reproducible and temperature 0 stays deterministic ([`tools/sampling_check.py`](runs/2026-10-17-1017-tensorfold/tools/sampling_check.py)).
+
 ### Quick start
 
 The exact scripts we ran, with every setting, are in the run folder: [runs/2026-10-17-1017-tensorfold/README.md](runs/2026-10-17-1017-tensorfold/README.md#reproduce). The engine and kit come from bertholomus's [recipe](https://github.com/bertholomus/deepseek-v4.1-tensorfold-tp4-4xgb10) (RUNNING.md); the model, patches, chat template, settings and checks are this repo's. In short:
@@ -121,12 +135,14 @@ The exact scripts we ran, with every setting, are in the run folder: [runs/2026-
 | Long prompts with a needle | done: 20,000; 131,073; 145,152; 146,421; 149,796; 160,000; 300,000 and 500,000 tokens all pass |
 | 69-scenario tool eval | done: quality 97.1 (134/138: 66 pass, 2 partial, 1 fail), responsiveness 97.8 (median turn 932 ms), deployability 97.3; native vLLM 1017g scored 98.6. The partials (TC-44, TC-67) are the same two as on the vLLM lanes; the fail (TC-57) is the suite's keyword check matching "won't" in a helpful answer. [Scorecard](runs/2026-10-17-1017-tensorfold/results/eval69/eval69-tf1017.md) |
 | Chat, tool calling, image input | done ([`tools/sanity.py`](runs/2026-10-17-1017-tensorfold/tools/sanity.py)): chat, the `glm-5.3-flash` alias, a tool call (`finish_reason: tool_calls`), a tool-result round trip, thinking on request, and image input all pass |
-| Second RoCE rail | **pending.** One rail is in use (GID index 3) |
+| Second RoCE rail | done: both rails striped, +5% decode and +15% long-prompt prefill (table above) |
+| Fleet endpoint | live since 2026-10-18 03:36 UTC on `0.0.0.0:8000` with [`config.fleet-8000-rail2-p4.env`](runs/2026-10-17-1017-tensorfold/launch/config.fleet-8000-rail2-p4.env): both rails, patch 0004, names `deepseek-v4.1-flash` and `glm-5.3-flash`, thinking off by default; [`tools/fleet_check.py`](runs/2026-10-17-1017-tensorfold/tools/fleet_check.py) passes (models, health, streaming, tool calls, images, auth variants, 6 concurrent) |
+| Recipe consistency gates (drafted == plain, concurrent == solo) | **pending** |
 
 ### Files
 
 - Run folder: [`runs/2026-10-17-1017-tensorfold/`](runs/2026-10-17-1017-tensorfold/): `launch/` (`config.env`, `chat_template.jinja`), `patches/` (the three engine patches), `tools/` (bench, long-prompt check, pack inventory, Engram copy, chat-template test), `results/tf1017a/` (report, bench table, raw JSON and log).
-- The launch itself is the recipe's `scripts/serve.sh`; this repo's `launch/` holds the vLLM launchers.
+- The launch itself is the recipe's `scripts/serve.sh`, wrapped by the run folder's `start_fleet*.sh` scripts (rollback order in its STATUS.md); this repo's top-level `launch/` holds the vLLM launchers.
 
 ## vLLM lanes (alternatives)
 

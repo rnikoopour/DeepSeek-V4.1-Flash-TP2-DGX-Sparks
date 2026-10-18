@@ -1,0 +1,14 @@
+PASS models lists both names ['deepseek-v4.1-flash', 'glm-5.3-flash']
+PASS /health {"status": "ok", "model": "deepseek-v4.1-flash", "model_ids": ["deepseek-v4.1-flash", "glm-5.3-flash"], "max_batch_size"
+PASS chat non-streaming 'There are **3** “r” letters in “strawberry.”' model=deepseek-v4.1-flash
+PASS alias glm-5.3-flash reports model=glm-5.3-flash
+PASS chat stream:true SSE content-type=text/event-stream chunks=7 role_delta=True usage=15 text='1, 2, 3, 4, 5.'
+PASS tool call, tool_choice auto [{"id": "call_673ba7a48025a5ef8f32a522", "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\":\"Tokyo\",\"unit\":\"c\"}"}}]
+PASS tool call streamed {"0": {"name": "get_weather", "args": "{\"city\":\"Tokyo\",\"unit\":\"c\"}"}} finish=tool_calls
+PASS request with no max_tokens 16 tokens 0.4s
+PASS image input 'Blue'
+PASS auth header none 
+PASS auth header Bearer sk-anything 
+PASS auth header Bearer EMPTY 
+PASS /v1/completions (heartbeat style) ' Paris.'
+PASS 6 concurrent requests 568 tokens in 2.6s = 215 tok/s aggregate
