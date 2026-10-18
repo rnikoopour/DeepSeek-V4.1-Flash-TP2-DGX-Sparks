@@ -50,9 +50,25 @@ DeepSeek's 1017 update ships the same config, index and tokenizer as the Septemb
 - Checks: vision and tools 7/7.
 - 69-scenario tool eval (thinking off): **98.6**, 67 pass / 2 partial / 0 fail. Boot 10 scored the same; responsiveness is up (96.0 vs 94.3).
 
+## DeepSeek-V4.1-Flash-1017 with every matrix in EXL3 (LibertAI 3.5 bpw), TP4
+
+[LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-3.5bpw](https://huggingface.co/LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-3.5bpw) stores attention, shared experts, indexer, compressor, Engram projection, head and the MTP/DSpark drafter in EXL3 as well as the routed experts (the earlier EXL3 lanes kept those in FP8). The Engram tables are not in it and are read from the base 1017 shards. [patch/exl3-1017-full](patch/exl3-1017-full/CHANGES.md) is the loader work (grouped `wo_a` slices, padded shared experts and head so that every tensor-parallel slice is a whole number of 128-blocks, name aliases); the run, launch kit, checks and benches are in [runs/2026-10-17-1017-exl3](runs/2026-10-17-1017-exl3/README.md).
+
+It loads on the first boot and answers correctly (count, code, tool call, image):
+
+| | native 1017g | full EXL3 |
+|---|---|---|
+| model memory per Spark | 81.7 GiB | **56.2 GiB** |
+| KV pool at 300K | 1,523,740 | **3,701,062** |
+| boot to serving | about 11 min | **374 s** |
+| C1 / C6 aggregate tok/s | 48.5 / 165.7 | 36.0 / 115.8 |
+| draft tokens accepted (DSpark k=5) | 53 % | 12.4 % |
+
+Decode is 0.70-0.75x of the native lane. Where speculation helps little (prose, narrative, summary, math) EXL3 is within 0.8-1.3x of native; the loss is in the categories that benefit from DSpark, whose acceptance fell from 53 % to 12.4 %. The cause is not yet established; the run README lists the next tests. The 69-scenario eval was not run on this lane.
+
 ## Three Sparks: the EXL3 TP3 lane
 
-> **Release note:** this lane was built and benched on the September V4.1 Flash release (bot-lab-21's EXL3 build of its experts). It has not been run on DeepSeek-V4.1-Flash-1017, which is what the 4-Spark lane serves now (see [runs/2026-10-17-1017](runs/2026-10-17-1017/)). There is no EXL3 build of 1017 yet.
+> **Release note:** this lane was built and benched on the September V4.1 Flash release (bot-lab-21's EXL3 build of its experts). It has not been run on DeepSeek-V4.1-Flash-1017, which is what the 4-Spark lane serves now (see [runs/2026-10-17-1017](runs/2026-10-17-1017/)). A full-EXL3 build of 1017 (LibertAI) was brought up on 4 Sparks, see the section above.
 
 The same model on **three** DGX Sparks instead of four, using bot-lab-21's [EXL3 3.5 bpw build](https://huggingface.co/bot-lab-21/DeepSeek-V4.1-Flash-EXL3-3.5bpw-Pollard) of the routed experts (everything else is the release's FP8). V4.1 had no TP3 path in vLLM, so this lane adds one: virtual attention heads (64 padded to 72), a vocabulary split that works at TP3, Engram rows for three ranks, a streaming weight loader, and a fix that lets the DSpark drafter's 128 experts load on three ranks. The full write-up, with every boot and what failed, is in [docs/EXL3-TP3.md](docs/EXL3-TP3.md).
 

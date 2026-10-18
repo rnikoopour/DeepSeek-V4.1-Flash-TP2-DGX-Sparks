@@ -1,0 +1,35 @@
+gpu_unit_test_1017x.py on Reddie, 2026-10-18 02:19 UTC (serving lane stopped), image vllm-dsv41:exl3b-roce,
+patch set dsv41-exl3-1017x, checkpoint DeepSeek-V4.1-Flash-1017-EXL3-3.5bpw. One GPU, tensor-parallel rank r of 4 emulated by
+patching the rank/size getters; outputs concatenated (column-parallel, head) or summed (row-parallel, shared expert) over ranks and
+compared with x @ W_eff from the pure-torch oracle (tools/exl3_ref.py). Activations bf16.
+
+Exl3Config: 46702 modules; shared_expert_pad_block 128
+ok   wq_b column-parallel TP4, 1 tok                rel_err=0.0017 (tol 0.03)
+ok   wq_b column-parallel TP4, 6 tok                rel_err=0.0017 (tol 0.03)
+ok   wq_b column-parallel TP4, 48 tok               rel_err=0.0017 (tol 0.03)
+ok   wo_b row-parallel TP4, 1 tok                   rel_err=0.0017 (tol 0.03)
+ok   wo_b row-parallel TP4, 6 tok                   rel_err=0.0017 (tol 0.03)
+ok   wo_b row-parallel TP4, 48 tok                  rel_err=0.0017 (tol 0.03)
+ok   fused_wqa_wkv, 1 tok                           rel_err=0.0017 (tol 0.03)
+ok   fused_wqa_wkv, 6 tok                           rel_err=0.0017 (tol 0.03)
+ok   fused_wqa_wkv, 48 tok                          rel_err=0.0017 (tol 0.03)
+ok   wo_a grouped rank 0, 1 tok                     rel_err=0.0018 (tol 0.03)
+ok   wo_a grouped rank 0, 6 tok                     rel_err=0.0017 (tol 0.03)
+ok   wo_a grouped rank 0, 48 tok                    rel_err=0.0017 (tol 0.03)
+ok   wo_a grouped rank 1, 48 tok                    rel_err=0.0017 (tol 0.03)
+ok   wo_a grouped rank 2, 48 tok                    rel_err=0.0017 (tol 0.03)
+ok   wo_a grouped rank 3, 48 tok                    rel_err=0.0017 (tol 0.03)
+ok   shared expert (padded 2560) TP4, 1 tok         rel_err=0.0035 (tol 0.05)
+ok   shared expert (padded 2560) TP4, 6 tok         rel_err=0.0035 (tol 0.05)
+ok   shared expert (padded 2560) TP4, 48 tok        rel_err=0.0035 (tol 0.05)
+head: padded vocab 129536 per rank 32384
+ok   lm_head vocab-parallel TP4, 1 tok              rel_err=0.0017 (tol 0.03)
+     argmax agreement 1.00
+ok   lm_head vocab-parallel TP4, 6 tok              rel_err=0.0017 (tol 0.03)
+     argmax agreement 1.00
+ok   compressor layer 2 (wkv+wgate) fp32 out        rel_err=0.0004 (tol 0.03)
+ok   compressor layer 20 (wkv) fp32 out             rel_err=0.0004 (tol 0.03)
+ok   indexer.wk 8 bit                               rel_err=0.0020 (tol 0.02)
+ok   indexer.wq_b                                   rel_err=0.0017 (tol 0.03)
+ok   engram.wkv                                     rel_err=0.0018 (tol 0.03)
+RESULT PASS
