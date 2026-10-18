@@ -1,0 +1,44 @@
+bench tf1017a-c8c16 start 2026-10-18T03:21:31Z
+[tf1017a-c8c16] warmup
+  C8 coding        agg  320.81 tok/s  per-stream 46.73  ttft 0.612s
+  C8 json          agg  184.69 tok/s  per-stream 32.1  ttft 0.833s
+  C8 narrative     agg  184.85 tok/s  per-stream 27.11  ttft 0.568s
+  C8 prose         agg  178.08 tok/s  per-stream 25.5  ttft 0.548s
+  C8 math          agg  274.23 tok/s  per-stream 40.82  ttft 0.843s
+  C8 reasoning     agg  200.90 tok/s  per-stream 28.65  ttft 0.814s
+  C8 summary       agg  130.72 tok/s  per-stream 21.54  ttft 1.602s
+  C8 format        agg  227.72 tok/s  per-stream 41.7  ttft 0.978s
+  C8 ceiling_count agg  445.33 tok/s  per-stream 62.02  ttft 0.441s
+  C16 coding        agg  346.17 tok/s  per-stream 25.26  ttft 1.15s
+  C16 json          agg  215.64 tok/s  per-stream 20.04  ttft 1.589s
+  C16 narrative     agg  207.20 tok/s  per-stream 15.42  ttft 1.063s
+  C16 prose         agg  226.57 tok/s  per-stream 17.11  ttft 1.048s
+  C16 math          agg  322.78 tok/s  per-stream 24.5  ttft 1.643s
+  C16 reasoning     agg  275.60 tok/s  per-stream 20.55  ttft 1.578s
+  C16 summary       agg  157.47 tok/s  per-stream 13.92  ttft 3.049s
+  C16 format        agg  227.66 tok/s  per-stream 20.43  ttft 1.901s
+  C16 ceiling_count agg  402.18 tok/s  per-stream 28.01  ttft 0.874s
+Prompt set `v1` (identical across boots), temperature 0, thinking off. Tokens from the server's usage block; TTFT = first token delta.
+
+### Throughput by concurrency (8 categories; the counting ceiling is excluded)
+
+| C | aggregate tok/s | per-stream tok/s | mean TTFT (s) |
+|---|---|---|---|
+| C8 | 212.75 | 33.02 | 0.85 |
+| C16 | 247.39 | 19.65 | 1.628 |
+
+### Per-stream tok/s by category
+
+| category | C8 | C16 |
+|---|---|---|
+| coding | 46.73 | 25.26 |
+| json | 32.1 | 20.04 |
+| narrative | 27.11 | 15.42 |
+| prose | 25.5 | 17.11 |
+| math | 40.82 | 24.5 |
+| reasoning | 28.65 | 20.55 |
+| summary | 21.54 | 13.92 |
+| format | 41.7 | 20.43 |
+| ceiling_count | 62.02 | 28.01 |
+wrote /var/tmp/tf1017/bench/tf1017a-c8c16/bench-tf1017a-c8c16.json and .md
+BENCH DONE rc=0 2026-10-18T03:23:52Z

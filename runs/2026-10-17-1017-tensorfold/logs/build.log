@@ -1,0 +1,77 @@
+
+=============
+== PyTorch ==
+=============
+
+NVIDIA Release 26.07 (build 373437299)
+PyTorch Version 2.13.0a0+9186a08
+Container image Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2014-2024 Facebook Inc.
+Copyright (c) 2011-2014 Idiap Research Institute (Ronan Collobert)
+Copyright (c) 2012-2014 Deepmind Technologies    (Koray Kavukcuoglu)
+Copyright (c) 2011-2012 NEC Laboratories America (Koray Kavukcuoglu)
+Copyright (c) 2011-2013 NYU                      (Clement Farabet)
+Copyright (c) 2006-2010 NEC Laboratories America (Ronan Collobert, Leon Bottou, Iain Melvin, Jason Weston)
+Copyright (c) 2006      Idiap Research Institute (Samy Bengio)
+Copyright (c) 2001-2004 Idiap Research Institute (Ronan Collobert, Samy Bengio, Johnny Mariethoz)
+Copyright (c) 2015      Google Inc.
+Copyright (c) 2015      Yangqing Jia
+Copyright (c) 2013-2016 The Caffe contributors
+All rights reserved.
+
+Various files include modifications (c) NVIDIA CORPORATION & AFFILIATES.  All rights reserved.
+
+GOVERNING TERMS: The software and materials are governed by the NVIDIA Software License Agreement
+(found at https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-software-license-agreement/)
+and the Product-Specific Terms for NVIDIA AI Products
+(found at https://www.nvidia.com/en-us/agreements/enterprise-software/product-specific-terms-for-ai-products/).
+
+WARNING: The NVIDIA Driver was not detected.  GPU functionality will not be available.
+   Use the NVIDIA Container Toolkit to start this container with GPU support; see
+   https://docs.nvidia.com/datacenter/cloud-native/ .
+
+NOTE: The SHMEM allocation limit is set to the default of 64MB.  This may be
+   insufficient for PyTorch.  NVIDIA recommends the use of the following flags:
+   docker run --gpus all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 ...
+
+0.17.0
+Cuda compilation tools, release 13.3, V13.3.73
+Build cuda_13.3.r13.3/compiler.38244171_0
+Sun Oct 18 02:47:05 UTC 2026
+install
++- install tf-dsv41-load
+   +- compile exe tf-dsv41-load fast aarch64-linux-gnu.2.28
+      +- run /usr/local/cuda/bin/nvcc (prefill_attention.fatbin) w
+./zig/kernels/cuda/prefill_attention.cu(18): warning #177-D: variable "tf_prefill_attention::SMEM_MAX" was declared but never referenced
+  constexpr int SMEM_MAX = 96 * 1024;
+                ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+
+BUILD rc=0
+Sun Oct 18 02:49:09 UTC 2026
+zig-out/bin:
+total 83336
+drwxr-xr-x 2 ubuntu ubuntu     4096 Oct 18 02:48 .
+drwxr-xr-x 4 ubuntu ubuntu     4096 Oct 18 02:49 ..
+-rwxr-xr-x 1 ubuntu ubuntu 10697976 Oct 18 02:48 tensorfold
+-rwxr-xr-x 1 ubuntu ubuntu  7290704 Oct 18 02:48 tf-cuda-test
+-rwxr-xr-x 1 ubuntu ubuntu  4866920 Oct 18 02:48 tf-dsv41-check
+-rwxr-xr-x 1 ubuntu ubuntu  4761408 Oct 18 02:48 tf-dsv41-comm
+-rwxr-xr-x 1 ubuntu ubuntu  4361592 Oct 18 02:48 tf-dsv41-engram-check
+-rwxr-xr-x 1 ubuntu ubuntu 12451376 Oct 18 02:48 tf-dsv41-lanes
+-rwxr-xr-x 1 ubuntu ubuntu 10956952 Oct 18 02:48 tf-dsv41-layer
+-rwxr-xr-x 1 ubuntu ubuntu  5750600 Oct 18 02:48 tf-dsv41-load
+-rwxr-xr-x 1 ubuntu ubuntu  3980152 Oct 18 02:48 tf-dsv41-picture
+-rwxr-xr-x 1 ubuntu ubuntu  4870680 Oct 18 02:48 tf-dsv41-rank-cache
+-rwxr-xr-x 1 ubuntu ubuntu  4800896 Oct 18 02:48 tf-dsv41-rdma-bench
+-rwxr-xr-x 1 ubuntu ubuntu  4966528 Oct 18 02:48 tf-dsv41-ring2d-check
+-rwxr-xr-x 1 ubuntu ubuntu  5546824 Oct 18 02:48 tf-dsv41-vit
+
+zig-out/native/bin:
+total 24476
+drwxr-xr-x 2 ubuntu ubuntu     4096 Oct 18 02:49 .
+drwxr-xr-x 3 ubuntu ubuntu     4096 Oct 18 02:49 ..
+-rwxr-xr-x 1 ubuntu ubuntu 25054336 Oct 18 02:49 tensorfold-native
+CONTAINER rc=0
