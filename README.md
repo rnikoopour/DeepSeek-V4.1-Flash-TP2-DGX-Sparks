@@ -8,7 +8,7 @@ The default lane is built on TensorFold, bertholomus's DeepSeek-V4.1 TP4 fork, r
 
 DeepSeek-V4.1-Flash-1017 as LibertAI's EXL3 3.5 bpw pack, served by TensorFold's Zig engine, one tensor-parallel rank per Spark, context 1,048,576, 16 streams, DSpark drafts on. On the standard bench (prompt set v1, temperature 0, thinking off) it reaches 89.8 tok/s aggregate at one stream against 48.5 for the native-weights vLLM lane (1.85x) and 36.0 for the full-EXL3 vLLM lane, and 202.9 tok/s at six streams against 165.7 (+22%) and 115.8. Cold prefill is 1,929 tok/s at 93K tokens, against 2,201 on native vLLM (12% lower). Run record: [runs/2026-10-17-1017-tensorfold](runs/2026-10-17-1017-tensorfold/).
 
-Validated so far (details under [Status and pending checks](#status-and-pending-checks)): the chat template (byte-exact against DeepSeek's reference encoder), chat, tool calling, tool-result round trips, thinking on request and image input through `/v1/chat/completions`, needle prompts from 20K to 500K tokens, and the 69-scenario tool eval (97.1, 66 pass / 2 partial / 1 fail, against 98.6 on native vLLM). With the second RoCE rail on, it reaches 93.6 tok/s at one stream and 213.8 at six, and reads a 93K-token prompt at 2,215 tok/s, level with native vLLM. Since 2026-10-18 03:36 UTC this lane serves our fleet endpoint. The recipe's consistency gates pass (details in the status table).
+Validated so far (details under [Status and pending checks](#status-and-pending-checks)): the chat template (byte-exact against DeepSeek's reference encoder), chat, tool calling, tool-result round trips, thinking on request and image input through `/v1/chat/completions`, needle prompts from 20K to 500K tokens, and the 69-scenario tool eval (97.1, 66 pass / 2 partial / 1 fail, against 98.6 on native vLLM). With the second RoCE rail on, it reaches 93.6 tok/s at one stream and 213.8 at six, and reads a 93K-token prompt at 2,215 tok/s, level with native vLLM. Since 2026-10-18 03:36 UTC this lane serves our fleet endpoint (since 16:26 UTC with the [uncensored overlay](#uncensored-lane-the-keys-1017-overlay-on-the-tensorfold-lane)). The recipe's consistency gates pass (details in the status table).
 
 ### What is in the lane
 
@@ -99,6 +99,24 @@ Against native vLLM 1017g (48.5 / 165.7, prefill 2,201 at 93K) the dual-rail lan
 
 **Sampling on the fleet endpoint.** Server defaults `--temperature 1.0 --top-p 1.0 --top-k 20` (the model README recommends 1.0 / 1.0; the engine's exact sampler takes 1 <= top_k <= 56). Patch [`0004`](runs/2026-10-17-1017-tensorfold/patches/) adds two opt-in server settings: `TF_SEED_RANDOM=1` gives a request without a `seed` a random one (otherwise the engine derives the seed from the prompt, so identical requests return identical text), and `TF_TOP_K_MAX=56` treats `top_k <= 0` as the server default and clamps larger values instead of returning an error. An explicit `seed` stays reproducible and temperature 0 stays deterministic ([`tools/sampling_check.py`](runs/2026-10-17-1017-tensorfold/tools/sampling_check.py)).
 
+### Speed sheet, C1 to C32 (2026-10-18)
+
+The same prompt set at more concurrency levels, on the live fleet endpoint (both rails, patch 0004, 16 server streams), plus cold prefill.
+Tables and raw JSON: [`runs/2026-10-17-1017-tensorfold/results/tf1017-stock-c1c32/`](runs/2026-10-17-1017-tensorfold/results/tf1017-stock-c1c32/)
+(chart: `speed_sheet.png` there).
+
+| C | aggregate tok/s | per-stream tok/s | mean TTFT (s) |
+|---|---|---|---|
+| 1 | 98.6 | 112.0 | 0.18 |
+| 2 | 146.5 | 86.4 | 0.27 |
+| 4 | 198.0 | 61.1 | 0.45 |
+| 8 | 221.7 | 34.6 | 0.81 |
+| 12 | 250.9 | 26.3 | 1.18 |
+| 16 | 270.8 | 21.7 | 1.54 |
+| 32 | 260.5 | 19.1 | 5.96 (16 running, 16 queued) |
+
+Cold prefill: 2,950 tokens 1.4 s (2,144 tok/s), 11,592 tokens 5.1 s (2,266 tok/s), 46,810 tokens 20.7 s (2,263 tok/s), 93,335 tokens 42.2 s (2,213 tok/s).
+
 ### Quick start
 
 The exact scripts we ran, with every setting, are in the run folder: [runs/2026-10-17-1017-tensorfold/README.md](runs/2026-10-17-1017-tensorfold/README.md#reproduce). The engine and kit come from bertholomus's [recipe](https://github.com/bertholomus/deepseek-v4.1-tensorfold-tp4-4xgb10) (RUNNING.md); the model, patches, chat template, settings and checks are this repo's. In short:
@@ -145,6 +163,21 @@ The exact scripts we ran, with every setting, are in the run folder: [runs/2026-
 
 - Run folder: [`runs/2026-10-17-1017-tensorfold/`](runs/2026-10-17-1017-tensorfold/): `launch/` (`config.env`, `chat_template.jinja`), `patches/` (the three engine patches), `tools/` (bench, long-prompt check, pack inventory, Engram copy, chat-template test), `results/tf1017a/` (report, bench table, raw JSON and log).
 - The launch itself is the recipe's `scripts/serve.sh`, wrapped by the run folder's `start_fleet*.sh` scripts (rollback order in its STATUS.md); this repo's top-level `launch/` holds the vLLM launchers.
+
+## Uncensored lane: the Keys 1017 overlay on the TensorFold lane
+
+The default lane with [drowzeys/keys-DeepSeek-V4.1-Flash-1017-Abliterated](https://huggingface.co/drowzeys/keys-DeepSeek-V4.1-Flash-1017-Abliterated)
+(gated, responsible-use agreement; not redistributed here) applied to `layers.10-35.attn.wo_b`. It serves our fleet endpoint since 2026-10-18 16:26 UTC.
+Run record, scripts and results: [`runs/2026-10-18-1017-tensorfold-uncensored/`](runs/2026-10-18-1017-tensorfold-uncensored/).
+
+- **Method:** instead of rewriting 26 checkpoint shards (about 147 GB) and rebuilding every rank cache, we patch a copy of each node's TensorFold rank cache:
+  offsets from `tf-dsv41-rank-cache ... --index-only`, the overlay's EXL3 sidecar cut into each rank's 78 wo_b slices, written into a direct-IO copy,
+  checked byte for byte, then served by pointing `CACHE_DIR` at the copy. The stock caches stay untouched; switching lanes is a 2-minute restart.
+- **Speed:** unchanged (values change, sizes do not); see the speed sheet above.
+- **Refusals:** of five probe prompts, stock refused one and the uncensored lane answers all five; arithmetic stays correct.
+- **Tool eval:** quality 87.0 against stock's 97.1. Every lost point is in the safety and refusal scenarios (plus one omitted-parameter case): it goes
+  along with destructive or data-moving tool calls and follows instructions placed inside tool results. Keep a stock lane for agents that act on untrusted
+  content.
 
 ## vLLM lanes (alternatives)
 

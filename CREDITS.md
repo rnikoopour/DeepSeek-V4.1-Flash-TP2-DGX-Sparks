@@ -36,6 +36,7 @@ Our own files written to vLLM's conventions (for example `patch/exl3-tp3/virtual
 
 ## Engine, kernels and runtime
 
+- **drowzeys (Keys):** [keys-DeepSeek-V4.1-Flash-1017-Abliterated](https://huggingface.co/drowzeys/keys-DeepSeek-V4.1-Flash-1017-Abliterated) (MIT, gated behind a responsible-use agreement), the `layers.10-35.attn.wo_b` abliteration overlay of the uncensored lane, and its `patch_rank_cache_wob.py` / `apply_rank_blobs.py`, which our scripts run from the downloaded copy. Nothing from that repository is redistributed here.
 - **TensorFold** ([ashhart/TensorFold](https://github.com/ashhart/TensorFold), Apache-2.0): the Zig inference engine that serves the default lane. Its DeepSeek-V4.1 work on 2 and 4 GB10s is discussed in [ashhart/TensorFold#559](https://github.com/ashhart/TensorFold/issues/559).
 - **bertholomus:** the DeepSeek-V4.1 TP4 fork [bertholomus/TensorFold](https://github.com/bertholomus/TensorFold) (branch `deepseek-v41-zig-tp4`, engine commit `5940208`) and the recipe [bertholomus/deepseek-v4.1-tensorfold-tp4-4xgb10](https://github.com/bertholomus/deepseek-v4.1-tensorfold-tp4-4xgb10) (Apache-2.0): `scripts/serve.sh`, the run-time input builders, and the kernel kit, which covers the 3.5 bpw pack with no new kernels. Also the author of the Triton-variant fallback (our `0001` patch, commit `47a8910`).
 - **Lucas Peters** ([@lucas-peters](https://github.com/lucas-peters)): the indexer fix that passes each row block's `vis` 16-byte aligned (our `0002` patch, commit `b8ae0c7`).
