@@ -1,0 +1,14 @@
+PASS 6 identical requests, no seed, no temperature: outputs differ distinct 6 of 6
+PASS 6 identical requests, temperature 0.8, no seed: outputs differ distinct 5 of 6
+PASS seed=7 twice: identical 'Step Into Style, Walk Out in Confidence.'
+PASS different seeds differ distinct 3 of 4
+PASS temperature 0: deterministic 'Step Into Style, Walk Out in Confidence.'
+PASS top_k -1 -> 200 
+PASS top_k 0 -> 200 
+PASS top_k 100 -> 200 
+PASS top_k 56 -> 200 
+PASS top_k 1 -> 200 
+PASS top_k 20 -> 200 
+PASS top_k null -> 200 
+PASS top_p + min_p, no top_k -> 200 
+RESULT all pass

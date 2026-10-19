@@ -51,8 +51,8 @@ Node order (rank): Reddie 0, Bluey 1. Fabric: rail 1 `enp1s0f0np0` 192.168.192.0
 | C2 / C4 | 106.0 / 135.8 | 136.9 / 189.3 |
 | TTFT C1 (s) | 0.24 | 0.19 |
 | cold prefill 11.6K / 46.8K / 93.3K tok/s | 2,180 / 2,200 / 2,135 (186.8K: 2,044) | 2,140 / 2,181 / 2,215 |
-| longest needle found | 131,073 (2,059 tok/s prefill; longer pending) | 500,000 |
-| 69-scenario eval quality | TBD | 97.1 |
+| longest needle found | 1,000,000 (300K: 152.8 s, 500K: 274.7 s at 1,820 tok/s, 1M: 641.5 s at 1,559 tok/s) | 500,000 |
+| 69-scenario eval quality | 97.1 (134/138; 66 pass, 2 partial, 1 fail), responsiveness 96.5, 71.0 tok/s decode ([results/eval69](results/eval69/)) | 97.1 |
 
 Bench tables and raw JSON: [results/tp2a/](results/tp2a/) (prompt set v1, C1-C4 because the lane runs 4 streams; chart `speed_sheet.png`).
 
