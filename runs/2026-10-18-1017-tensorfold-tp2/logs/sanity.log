@@ -1,0 +1,6 @@
+PASS chat '391'
+PASS alias glm-5.3-flash 'Bonjour' model=glm-5.3-flash
+PASS tool call [{"id": "call_0562abb2604293454c1befc4", "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\":\"Paris\",\"unit\":\"c\"}"}}] finish=tool_calls
+PASS tool result round trip 'The weather in Paris right now is **14°C** and cloudy.'
+PASS thinking on reasoning chars=326 content='There are **3** letter **r**’s in **strawberry**.'
+PASS image input 'Red'

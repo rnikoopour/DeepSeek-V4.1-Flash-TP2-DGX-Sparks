@@ -1,0 +1,4 @@
+info: rank cache: 95.1 GiB of expert entries read whole in 10.0 s
+RDMA rank 1 peer 0 rail 0: gid_index=3 path_mtu=5
+RDMA rank 1 peer 0 rail 1: gid_index=3 path_mtu=5
+{"rank": 1, "loaded_s": 26.6, "pool": 1048576, "drafts": true, "arena_used": 4514178612, "arena_reserved": 4565502208}
