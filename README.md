@@ -10,7 +10,7 @@ vLLM lanes stay documented below them with their recipe, patches and benchmarks 
 |---|---|---|---|---|---|
 | **TensorFold TP4 (default)** | 4 | TensorFold native (bertholomus TP4 fork), LibertAI EXL3 3.5 bpw | validated | 93.6 tok/s at 1 user, 270.8 at 16 users, 1M context, KV pool 2,097,152, eval 97.1 | [section](#tensorfold-tp4-lane-default) · [run folder](runs/2026-10-17-1017-tensorfold/) |
 | **TensorFold TP4, uncensored** (live on our fleet) | 4 | the default lane + the Keys 1017 abliteration overlay | live since 2026-10-18 | same speed as the default lane; eval 87.0 (safety scenarios) | [section](#uncensored-variant-keys-1017-overlay) · [run folder](runs/2026-10-18-1017-tensorfold-uncensored/) |
-| **TensorFold TP2** | 2 | TensorFold native (bertholomus TP2 family), LibertAI EXL3 2.9 bpw | live since 2026-10-19 00:01 UTC, gates pass; bench running | 1M context, 4 streams, KV pool 1,048,576 positions; 131K-token needle found at 2,059 tok/s prefill; loads in 27 s; numbers coming | [section](#tensorfold-tp2-lane-two-sparks) · [run folder](runs/2026-10-18-1017-tensorfold-tp2/) |
+| **TensorFold TP2** | 2 | TensorFold native (bertholomus TP2 family), LibertAI EXL3 2.9 bpw | live since 2026-10-19 00:01 UTC, gates and bench done; eval running | 73.1 tok/s at 1 user, 135.8 at 4 users, 1M context, KV pool 1,048,576 positions, 93K prompt in 43.7 s; eval running | [section](#tensorfold-tp2-lane-two-sparks) · [run folder](runs/2026-10-18-1017-tensorfold-tp2/) |
 | vLLM, native 1017 weights | 4 | vLLM `dsv41-feat` + our patches, native FP8/FP4 | older, documented | 48.5 tok/s at 1 user, 165.7 at 6, eval 98.6 | [section](#deepseek-v41-flash-1017-on-4x-dgx-spark) · [run folder](runs/2026-10-17-1017/) |
 | vLLM, every matrix in EXL3 | 4 | vLLM + cuda-exl3, LibertAI EXL3 3.5 bpw | older, documented | 36.0 tok/s at 1 user, KV pool 3,701,062 | [section](#deepseek-v41-flash-1017-with-every-matrix-in-exl3-libertai-35-bpw-tp4) · [run folder](runs/2026-10-17-1017-exl3/) |
 | vLLM, EXL3 TP3 (September release) | 3 | vLLM + bot-lab-21's EXL3 experts | older, not run on 1017 | 46.0 tok/s at 1 user, 152.9 at 6 | [section](#three-sparks-the-exl3-tp3-lane) · [write-up](docs/EXL3-TP3.md) |
@@ -222,8 +222,8 @@ DeepSeek-V4.1-Flash-1017 on **two** DGX Sparks: [TensorFold](https://github.com/
 | weights | EXL3 2.9 bpw, all matrices (routed experts 3 bpw, 2 bpw on layers 18-22; attention 5 bpw; MTP/DSpark dense parts 6 bpw) |
 | context window | 1,048,576 tokens |
 | streams / KV pool | 4 / 1,048,576 positions (shared by the 4 streams) |
-| decode, single stream | measuring now (aggregate at 2 / 4 streams: measuring) |
-| cold prefill | 2,059 tok/s on a 131,073-token prompt (needle check); the 11.6K / 46.8K / 93.3K bench is running |
+| throughput (8 categories, aggregate tok/s) | C1 73.1 · C2 106.0 · C3 123.7 · C4 135.8; per stream at C1 84.2 (code 105.6, math 99.6, JSON 92.1); TTFT 0.24 s at C1, 0.61 s at C4 |
+| cold prefill | 2,180 / 2,200 / 2,135 / 2,044 tok/s at 11.6K / 46.8K / 93.3K / 186.8K tokens (93K in 43.7 s) |
 | longest needle found | 131,073 tokens (longer checks running) |
 | 69-scenario tool eval | running (the four-node lane: 97.1) |
 | memory left while serving | 6.7 GiB (Reddie, rank 0) and 8.2 GiB (Bluey, rank 1); model 105.04 GiB per node; loads in 27 s |
