@@ -147,5 +147,6 @@ Flags and environment that matter, and why:
 These are system settings, so apply them yourself:
 - Enable `dgx-anti-oom` and make its container regex match `vllm_dsv41`.
 - Set `vm.min_free_kbytes=1048576` and `vm.watermark_scale_factor=200`.
+  - These two were proposed after the boot-3 memory wedge and were never applied on our fleet. On four ASUS GX10, [@tsw2k measured](https://github.com/tonyd2wild/DeepSeek-V4.1-Flash-vLLM-DGX-Spark/issues/12) about 20% lower aggregate throughput with them than with the defaults at 5-6 streams (C1-C4 within 5%; cold prefill and the 131K needle unchanged). Treat them as optional and compare against the defaults on your own boxes.
 - Add the fstab mounts from step 2.
 - Raise the head's nfsd threads from 8 to 32.
