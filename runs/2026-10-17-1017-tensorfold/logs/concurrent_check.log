@@ -1,9 +1,0 @@
-PASS prompt 0 200 200
-PASS prompt 1 200 200
-PASS prompt 2 20 20
-PASS prompt 3 167 167
-PASS prompt 4 47 47
-PASS prompt 5 200 200
-PASS prompt 6 200 200
-PASS prompt 7 102 102
-RESULT concurrent == solo: 8 of 8 identical

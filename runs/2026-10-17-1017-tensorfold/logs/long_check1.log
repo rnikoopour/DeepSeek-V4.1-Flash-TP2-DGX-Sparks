@@ -1,5 +1,0 @@
-{"len": 20000, "http": 200, "prompt_tokens": 20000, "seconds": 10.4, "prefill_tok_s": 1932.0, "needle_ok": true, "reply": "7ZCPW3AH"}
-{"len": 146421, "http": 200, "prompt_tokens": 146421, "seconds": 76.6, "prefill_tok_s": 1912.0, "needle_ok": true, "reply": "PYNQFLW4"}
-{"len": 145152, "http": 200, "prompt_tokens": 145152, "seconds": 75.0, "prefill_tok_s": 1936.0, "needle_ok": true, "reply": "4FV65QZD"}
-{"len": 131073, "http": 200, "prompt_tokens": 131073, "seconds": 71.2, "prefill_tok_s": 1840.0, "needle_ok": true, "reply": "UWKQ6PEN"}
-{"len": 149796, "http": 200, "prompt_tokens": 149796, "seconds": 77.5, "prefill_tok_s": 1933.0, "needle_ok": true, "reply": "CGWV95ZS"}

@@ -1,6 +1,0 @@
-tf-dsv41-rank-cache MODEL_DIR /tmp RANK 4 --parity --index-only   (engine 5940208 + patches), model = LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-3.5bpw
-rank 0 entries 189610 bytes 68.87 GB   expert w1 K counts {4-bit: 11520, 3-bit: 11520, 6-bit (DSpark): 384}
-rank 1 entries 189610 bytes 68.87 GB   expert w1 K counts {4-bit: 11520, 3-bit: 11520, 6-bit (DSpark): 384}
-rank 2 entries 189850 bytes 68.91 GB   expert w1 K counts {4-bit: 11520, 3-bit: 11520, 6-bit (DSpark): 384}
-rank 3 entries 189850 bytes 68.91 GB   expert w1 K counts {4-bit: 11520, 3-bit: 11520, 6-bit (DSpark): 384}
-(the run took 0.3 s per rank; the written rank caches are 68,884,359,906 / 68,884,879,608 / 68,924,469,614 / 68,924,711,627 bytes)

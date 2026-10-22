@@ -1,8 +1,0 @@
-bench start 00:04:06
-bench rc=0 00:08:50
-concurrent rc=0
-sampling rc=0
-needle 300000 rc=0 00:11:59
-needle 500000 rc=0 00:16:35
-needle 1000000 rc=0 00:27:18
-NUMBERS_DONE
