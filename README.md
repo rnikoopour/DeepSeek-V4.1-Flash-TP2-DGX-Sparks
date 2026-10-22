@@ -103,7 +103,7 @@ still has a `tp2-lane` container).
 
 These steps were run end to end on two DGX Sparks into a fresh `TP2_BASE` beside a running lane (2026-10-22): the
 engine built from this repository's patches is byte-identical in source to the one measured above, the kit verified as
-described in step 7, the rank caches came out with the same file hashes, the precheck passed, the lane started and the
+described in step 7, the rank caches came out under the same hashed file names as the running lane's, the precheck passed, the lane started and the
 image follow-up benchmark gave the same replies and cache hits as in Results. Not exercised: `hf download` of the pack
 and the Engram shards (existing copies were used) and `make_bias_vl.py` (its output from an earlier run was reused).
 
