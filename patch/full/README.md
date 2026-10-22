@@ -5,8 +5,8 @@ Each file here is `diff -u` from the vLLM tree at commit `e47aa780bccf59f59dfa2c
 commit (`build/fetch_vllm_branch.sh`):
 
 ```
-git apply --check ../DeepSeek-V4.1-Flash-vLLM-DGX-Spark/patch/full/*.diff   # dry run
-git apply         ../DeepSeek-V4.1-Flash-vLLM-DGX-Spark/patch/full/*.diff
+git apply --check ../DeepSeek-V4.1-Flash-TP2-and-TP4-DGX-Sparks/patch/full/*.diff   # dry run
+git apply         ../DeepSeek-V4.1-Flash-TP2-and-TP4-DGX-Sparks/patch/full/*.diff
 ```
 
 `patch/verify_diffs.sh <vllm-checkout>` applies them to a scratch copy and checks that every result is byte-identical to the

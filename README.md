@@ -4,6 +4,8 @@ This repo runs DeepSeek-V4.1-Flash-1017 on DGX Sparks (GB10). Each **lane** is o
 node count, launch scripts, and measured results. The current lanes run on [TensorFold](https://github.com/ashhart/TensorFold)'s native engine; the older
 vLLM lanes stay documented below them with their recipe, patches and benchmarks unchanged.
 
+> This repo was renamed from `DeepSeek-V4.1-Flash-vLLM-DGX-Spark` on 2026-10-21. Old links and clones redirect here.
+
 ## Lanes at a glance
 
 | lane | Sparks | engine and weights | status | headline numbers | start here |
