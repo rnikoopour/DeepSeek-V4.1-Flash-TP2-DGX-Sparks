@@ -2,7 +2,7 @@
 # inputs_tp2.sh (rank 0, the node holding the pack): both ranks' rank caches (WORLD=2) and the token map, CPU only, low
 # priority: rank 0's into CACHE_DIR, rank 1's built here, sent to rank 1 and removed. PACK: the downloaded 2.9 bpw pack.
 set -e
-source ${DSV41_CONFIG:-/var/tmp/tf1017-tp2/config.tp2.env}
+source ${DSV41_CONFIG:-${TP2_BASE:-/var/tmp/tf1017-tp2}/config.tp2.env}
 read -ra N <<< "$NODES"
 PACK=${PACK:?set PACK to the downloaded DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw directory}
 export IMAGE
