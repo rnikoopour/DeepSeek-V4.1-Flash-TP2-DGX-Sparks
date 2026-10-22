@@ -1,0 +1,35 @@
+From 0e36844f4a4e99708154b701f51cebe78b36cdec Mon Sep 17 00:00:00 2001
+From: rnikoopour <7692789+rnikoopour@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 11:45:05 -0700
+Subject: [PATCH 7/7] native cuda: the host's backend passes prefill_step
+ through
+
+The CUDA host wraps the family's backend to bind the context on each call and
+copied every entry but prefill_step, so the lane host never saw a stepped
+prompt pass and ran each prompt whole.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ zig/src/native/cuda.zig | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/zig/src/native/cuda.zig b/zig/src/native/cuda.zig
+index c37f6353..ca59b929 100644
+--- a/zig/src/native/cuda.zig
++++ b/zig/src/native/cuda.zig
+@@ -215,6 +215,12 @@ const Host = struct {
+                     return x.inner.vtable.prefill(x.inner.ptr, s);
+                 }
+             }.f,
++            .prefill_step = if (v.prefill_step != null) struct {
++                fn f(p: *anyopaque, s: *lanes.Stream) anyerror!bool {
++                    const x = bind(p);
++                    return x.inner.vtable.prefill_step.?(x.inner.ptr, s);
++                }
++            }.f else null,
+             .first = struct {
+                 fn f(p: *anyopaque, s: *lanes.Stream, position: u64) anyerror!u64 {
+                     const x = bind(p);
+-- 
+2.54.0 (Apple Git-157)
+

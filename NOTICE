@@ -1,0 +1,17 @@
+DeepSeek-V4.1-Flash on two DGX Sparks: TensorFold TP2 with image prompt caching and chunked prefill
+
+This repository is a trimmed fork of tonyd2wild/DeepSeek-V4.1-Flash-TP2-and-TP4-DGX-Sparks (MIT, see LICENSE), keeping
+only its two-Spark TensorFold lane.
+
+patches/ hold changes to TensorFold (https://github.com/ashhart/TensorFold, Apache-2.0), as forked by bertholomus
+(https://github.com/bertholomus/TensorFold, branch deepseek-v41-zig, commit 3ff3b2a). TensorFold's LICENSE and NOTICE
+(which includes the fork's statement of its changes) are reproduced verbatim in third_party/TensorFold/. The patches
+carry only changed lines and context lines of that source.
+
+Changes in this repository (Apache License 2.0, section 4(b)), 2026:
+  patches/0004  the prompt cache keys kept states by image content, so prompts holding images resume
+  patches/0005  a prompt pass a chunk a loop, the shortest waiting first: a hand port of ashhart/TensorFold commits
+                d7b134cd and c4d07a54 (BlivionIaG) and 77641ba4 (ashhart)
+  patches/0006  the dsv41 family's prompt pass in steps, other streams' rounds between them
+  patches/0007  the native CUDA host passes the stepped prompt pass through
+Patches 0001-0003 come from the upstream repository's TP2 lane (0001 is bertholomus's commit 5940208).
