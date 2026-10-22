@@ -65,7 +65,8 @@ The stock lane's other numbers (73.1 tok/s at 1 user, 135.8 at 4, 1M-token needl
 
 ## Reproduce
 
-Everything lives under `/var/tmp/tf1017-tp2` (`BASE`) on both nodes. Commands run on rank 0 unless noted.
+Everything lives under `BASE` on both nodes: `/var/tmp/tf1017-tp2`, or the folder in `TP2_BASE` when it is set (export it
+before step 2 and keep it set for the scripts). Commands run on rank 0 unless noted.
 
 1. **Image** (both nodes): `docker pull nvcr.io/nvidia/pytorch:26.07-py3`.
 2. **Engine**: clone this repository on rank 0 and run [launch/setup.sh](launch/setup.sh). It fetches Zig 0.17.0 and

@@ -1,6 +1,6 @@
 #!/bin/bash
 # precheck_tp2.sh (rank 0): is the pair ready for a start? Exit 1 on any failed check. Starts nothing.
-source ${DSV41_CONFIG:-/var/tmp/tf1017-tp2/config.tp2.env}
+source ${DSV41_CONFIG:-${TP2_BASE:-/var/tmp/tf1017-tp2}/config.tp2.env}
 read -ra N <<< "$NODES"
 hca=${RDMA_HCA%%,*}; rc=0
 bad() { echo "FAIL: $*"; rc=1; }

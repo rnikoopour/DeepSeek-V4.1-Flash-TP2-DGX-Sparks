@@ -1,7 +1,7 @@
 #!/bin/bash
 # install_engine.sh (rank 0, after run_build.sh): the built binaries and the input tools into ENGINE_DIR on both nodes.
 set -e
-source ${DSV41_CONFIG:-/var/tmp/tf1017-tp2/config.tp2.env}
+source ${DSV41_CONFIG:-${TP2_BASE:-/var/tmp/tf1017-tp2}/config.tp2.env}
 read -ra N <<< "$NODES"
 E=$BASE/engine
 mkdir -p $ENGINE_DIR
