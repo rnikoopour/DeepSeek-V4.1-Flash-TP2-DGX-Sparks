@@ -61,7 +61,8 @@ The stock lane's other numbers (73.1 tok/s at 1 user, 135.8 at 4, 1M-token needl
 - On each node: about 110 GiB free memory with nothing else on the GPU, and Docker with the NVIDIA runtime. Disk: about
   600 GB on rank 0 (the 196 GB pack, the 203 GB Engram shards, its ~99 GB rank cache and rank 1's while it is built) and
   about 310 GB on rank 1. The pack can go once step 9 is done (the model dir keeps the files it needs).
-- `hf` (huggingface_hub) and `rsync` on rank 0.
+- `hf` and `rsync` on rank 0. DGX OS ships `rsync`; for `hf`: `python3 -m venv BASE/venv && BASE/venv/bin/pip install huggingface_hub`
+  and put `BASE/venv/bin` on `PATH`.
 
 ## Reproduce
 
@@ -77,16 +78,19 @@ before step 2 and keep it set for the scripts). Commands run on rank 0 unless no
 4. **Build**: `BASE/run_build.sh` (the build container, no GPU, a few minutes), then `BASE/install_engine.sh` to put the
    binaries in `BASE/engine-bin` on both nodes.
 5. **Weights** (rank 0): `HF_HUB_DISABLE_XET=1 hf download LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw --local-dir <PACK>`.
-6. **Engram** (both nodes): `hf download deepseek-ai/DeepSeek-V4.1-Flash-1017 model-00047-of-00048.safetensors model-00048-of-00048.safetensors --local-dir BASE/engram`.
-7. **Kit** (both nodes, same path): `hf download bertholomus/DeepSeek-V4.1-Flash-TensorFold-TP2-2xGB10 --include 'kit/*' --local-dir BASE/kit-dl && mv BASE/kit-dl/kit BASE/kit`.
+6. **Engram**: `hf download deepseek-ai/DeepSeek-V4.1-Flash-1017 model-00047-of-00048.safetensors model-00048-of-00048.safetensors --local-dir BASE/engram`,
+   then `rsync -a BASE/engram/ <rank 1>:BASE/engram/` (each node reads its own copy).
+7. **Kit**: `hf download bertholomus/DeepSeek-V4.1-Flash-TensorFold-TP2-2xGB10 --include 'kit/*' --local-dir BASE/kit-dl && mv BASE/kit-dl/kit BASE/kit`.
    The 1017 update needs its own vision gate bias: `python3 BASE/engine/tools/dsv41-zig/kit/make_bias_vl.py <1017 base checkpoint dir> BASE/kit/vision/gate_bias_vl.safetensors`
    (standard library only; it reads only the `*.ffn.gate.bias_vl` tensors, from the shards the index names). Then
-   `BASE/kit/tools/verify_kit.sh` (the replaced bias file is the one entry expected to differ from the kit's MANIFEST).
-8. **Model dir** (both nodes, `BASE/model`): from the pack, `config.json`, `tokenizer*.json`, `model.safetensors.index.json`,
-   `exl3_k_map.json`, `quantization_config.json`, `encoding/` and shard 43 (the vision tower); plus
-   [launch/chat_template.jinja](launch/chat_template.jinja) as `chat_template.jinja`.
+   `bash BASE/kit/tools/verify_kit.sh` (a download keeps no execute bits): it reports `1 of 223 files missing or different`,
+   `vision/gate_bias_vl.safetensors`, the 1017 bias that replaced the kit's. Then `rsync -a BASE/kit/ <rank 1>:BASE/kit/`.
+8. **Model dir** (`BASE/model`): from the pack, `config.json`, `tokenizer.json`, `tokenizer_config.json`,
+   `model.safetensors.index.json`, `exl3_k_map.json`, `quantization_config.json`, `encoding/` and
+   `model-00043-of-00043.safetensors` (the vision tower); plus [launch/chat_template.jinja](launch/chat_template.jinja) as
+   `chat_template.jinja` (it replaces the pack's). Then `rsync -a BASE/model/ <rank 1>:BASE/model/`.
 9. **Rank caches**: `PACK=<PACK> BASE/inputs_tp2.sh` builds both ranks' weight files and the token map (CPU only, low
-   priority) and moves rank 1's to rank 1.
+   priority, about 20 minutes) and moves rank 1's to rank 1.
 10. **Serve**: `BASE/start_tp2.sh` checks both nodes ([launch/precheck_tp2.sh](launch/precheck_tp2.sh)), then starts rank 1
     and rank 0 in containers named `tp2-lane` and waits for a chat reply. The API is on rank 0, port 8000, model
     `deepseek-v4.1-flash`; the log is `BASE/logs/tp2-lane.log`. `BASE/stop_tp2.sh` stops both.
@@ -94,6 +98,14 @@ before step 2 and keep it set for the scripts). Commands run on rank 0 unless no
 To keep it up across reboots, run `start_tp2.sh` from a systemd unit on rank 0, or a loop that restarts the lane when
 `/v1/models` stops answering (stop it with `serve_tp2.sh stop` first: the precheck refuses a start while either node
 still has a `tp2-lane` container).
+
+## Tested
+
+These steps were run end to end on two DGX Sparks into a fresh `TP2_BASE` beside a running lane (2026-10-22): the
+engine built from this repository's patches is byte-identical in source to the one measured above, the kit verified as
+described in step 7, the rank caches came out with the same file hashes, the precheck passed, the lane started and the
+image follow-up benchmark gave the same replies and cache hits as in Results. Not exercised: `hf download` of the pack
+and the Engram shards (existing copies were used) and `make_bias_vl.py` (its output from an earlier run was reused).
 
 ## Checking that the patches work
 
