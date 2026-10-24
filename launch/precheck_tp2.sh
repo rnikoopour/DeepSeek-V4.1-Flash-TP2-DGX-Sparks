@@ -16,6 +16,8 @@ for t in "${N[@]}"; do
     echo \"engram \$(ls $ENGRAM_DIR/model-00047-of-00048.safetensors $ENGRAM_DIR/model-00048-of-00048.safetensors 2>/dev/null | wc -l)\"
     echo \"gid \$(cat /sys/class/infiniband/$hca/ports/1/gid_attrs/types/\${NCCL_IB_GID_INDEX:-3} 2>/dev/null)\"")
   echo "== $t"; echo "$out"
+  # NODES must name an account this user (the service runs as its User=) can reach without a password
+  [ -n "$out" ] || { bad "$t not reachable by ssh as $(id -un) (check NODES in $DSV41_CONFIG)"; continue; }
   echo "$out" | grep -q "^containers .*$LANE" && bad "$t already runs $LANE"
   [ "$(echo "$out" | awk '/^gpuprocs/ {print $2}')" = 0 ] || bad "$t has GPU processes"
   echo "$out" | grep -q '^cache rank[01]of2-' || bad "$t has no rank cache"

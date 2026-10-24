@@ -3,7 +3,7 @@
 set -e
 source ${DSV41_CONFIG:-${TP2_BASE:-/var/tmp/tf1017-tp2}/config.tp2.env}
 read -ra N <<< "$NODES"
-E=$BASE/engine
+E=${ENGINE_SRC:-$BASE/engine}    # the build tree to install from (the upgrade builds in $BASE/engine-head)
 mkdir -p $ENGINE_DIR
 cp $E/zig-out/bin/* $E/zig-out/native/bin/tensorfold-native $E/tools/dsv41-zig/inputs/node_inputs.sh \
   $E/tools/dsv41-zig/inputs/make_token_map.py $ENGINE_DIR/
