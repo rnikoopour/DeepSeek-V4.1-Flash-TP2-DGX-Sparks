@@ -1,0 +1,561 @@
+From a5b00ea95e48977e175369bd8014aa898c0238c9 Mon Sep 17 00:00:00 2001
+From: tp2-lane <tp2-lane@localhost>
+Date: Fri, 23 Oct 2026 08:15:16 -0700
+Subject: [PATCH] lanes: a prompt pass a chunk a round, several passes at a
+ time, shortest first
+
+Upstream a27d2f00 runs a prompt pass in pieces between rounds but admits one
+pass at a time: a request that arrives during a long cold pass waits for that
+pass to end (measured 27.9 s behind 44K tokens). This re-ports patch 0005's
+scheduling onto that structure.
+
+- Engine.filling is a list: addStream opens a piece for every arrival, and
+  fillStream advances the pass its caller picked; fillNext takes the fewest
+  prompt rows left (Stream.fill_at, set by a backend that fills in pieces),
+  oldest of equals, and fill_patience makes every pass advance in turn.
+- addStream opens a piece even when no stream decodes: upstream ran a lone
+  pass whole inside its admission, which blocks every arrival behind it.
+- LaneHost admits while passes fill, keeps its own filling list, and picks
+  among them with the same rule.
+- Lanes keeps one Fill per slot (its spans and rows parked with it) and
+  switches the model's fill state between them, re-sending fill_begin and the
+  images; the KV rows stay in the pool, so a switch costs a frame, not a pass.
+---
+ zig/src/core/lane_host.zig       |  57 ++++++++++++----
+ zig/src/core/lane_host_test.zig  |  53 +++++++++++++++
+ zig/src/core/lanes/engine.zig    |  82 +++++++++++++++++++----
+ zig/src/core/lanes/stream.zig    |   2 +
+ zig/src/families/dsv41/lanes.zig | 108 ++++++++++++++++++++++++++-----
+ 5 files changed, 261 insertions(+), 41 deletions(-)
+
+diff --git a/zig/src/core/lane_host.zig b/zig/src/core/lane_host.zig
+index 8baf2a36..a7cd94fa 100644
+--- a/zig/src/core/lane_host.zig
++++ b/zig/src/core/lane_host.zig
+@@ -51,7 +51,7 @@ pub const LaneHost = struct {
+     // and frees its extent (its kept state then resumes in place) instead of waiting out every queued pass, as the
+     // Python lane's fills leave decoding its share
+     finish_until: ?i96 = null,
+-    filling: ?*Job = null, // the job whose prompt pass runs in pieces between rounds (core.filling's)
++    filling: std.ArrayList(*Job) = .empty, // jobs whose prompt pass runs in pieces between rounds, shortest first
+ 
+     const Mark = struct { at: i96, tokens: u64 };
+     const full_retry_ns: i96 = std.time.ns_per_s;
+@@ -75,6 +75,7 @@ pub const LaneHost = struct {
+         entry: ?*pc.Entry = null, // the kept state the backend restores, until its prompt pass reports
+         marks: []const u32 = &.{}, // where the pass keeps states (gpa-owned)
+         kept0: u64 = 0, // the store's kept count when the job looked it up
++        fill_wait: u32 = 0, // fill choices since its last piece (fillNext's patience)
+ 
+         /// The backend's prompt pass stands at a mark: the cache keeps the stream's state there.
+         fn kept(ptr: *anyopaque, s: *lanes.Stream, at: u32) void {
+@@ -114,6 +115,7 @@ pub const LaneHost = struct {
+         h.thread = null;
+         h.queued.deinit(h.gpa);
+         h.admitted.deinit(h.gpa);
++        h.filling.deinit(h.gpa);
+         h.cancels.deinit(h.gpa);
+         h.decoded.deinit(h.gpa);
+         h.live_tokens.deinit(h.gpa);
+@@ -273,7 +275,7 @@ pub const LaneHost = struct {
+         dropped.deinit(h.gpa);
+         for (ids) |id| {
+             for (h.admitted.items, 0..) |job, i| if (job.id == id) {
+-                if (h.filling == job) h.filling = null;
++                if (h.filling.items.len > 0) h.unfill(job);
+                 if (!job.stream.finished) h.core.discard(&job.stream);
+                 h.lock();
+                 _ = h.admitted.orderedRemove(i);
+@@ -296,7 +298,7 @@ pub const LaneHost = struct {
+     /// Prefills the next queued request into a free lane; false when none waits or no lane is free.
+     fn admitOne(h: *LaneHost) bool {
+         h.lock();
+-        if (h.queued.items.len == 0 or h.admitted.items.len >= h.info_.lanes or h.filling != null) {
++        if (h.queued.items.len == 0 or h.admitted.items.len >= h.info_.lanes) {
+             h.unlock();
+             return false;
+         }
+@@ -362,8 +364,8 @@ pub const LaneHost = struct {
+             if (e == error.ContextFull and h.core.activeCount() > 0) return h.requeue(job);
+             return h.drop(job, h.words(e));
+         };
+-        if (h.core.filling == &job.stream) {
+-            h.filling = job; // its next pieces run between rounds (fillOne)
++        if (h.core.isFilling(&job.stream)) {
++            h.filling.append(h.gpa, job) catch return h.drop(job, "out of memory"); // its next pieces run between rounds (fillOne)
+             return true;
+         }
+         h.prefilled(job, began);
+@@ -515,20 +517,51 @@ pub const LaneHost = struct {
+         };
+     }
+ 
+-    /// The filling job's next piece, when its turn has come; its first tokens once its prompt pass ends.
++    /// The filling jobs' next piece, when the rounds between pieces have run; the shortest waiting prompt first. A job
++    /// whose pass ends gets its first tokens and joins the rounds.
+     fn fillOne(h: *LaneHost) void {
+-        const job = h.filling orelse return;
+-        const done = h.core.fillStep() catch |e| {
+-            h.filling = null;
++        if (h.filling.items.len == 0) return;
++        if (!h.core.fillDue()) return;
++        const at = h.fillNext();
++        const job = h.filling.items[at];
++        const done = h.core.fillStream(&job.stream) catch |e| {
++            h.unfill(job);
+             _ = if (e == error.Cancelled) h.cancel(job) else h.drop(job, h.words(e));
+             return;
+         };
+         if (!done) return;
+-        h.filling = null;
++        h.unfill(job);
+         h.prefilled(job, job.began);
+         if (h.deliver(job)) h.remove(job);
+     }
+ 
++    /// Which filling job goes next (upstream c4d07a54, 77641ba4): the fewest prompt rows left, the oldest of equals; a
++    /// job passed over `fill_patience` times goes first, so every fill keeps moving.
++    fn fillNext(h: *LaneHost) usize {
++        var at: usize = 0;
++        for (h.filling.items, 0..) |j, i| {
++            const best = h.filling.items[at];
++            const aged = j.fill_wait >= fill_patience;
++            const best_aged = best.fill_wait >= fill_patience;
++            if (aged != best_aged) {
++                if (aged) at = i;
++            } else if (aged) {
++                if (j.fill_wait > best.fill_wait) at = i;
++            } else if (h.core.fillLeft(&j.stream) < h.core.fillLeft(&best.stream)) at = i;
++        }
++        for (h.filling.items, 0..) |j, i| j.fill_wait = if (i == at) 0 else j.fill_wait +| 1;
++        return at;
++    }
++
++    fn unfill(h: *LaneHost, job: *Job) void {
++        for (h.filling.items, 0..) |j, i| if (j == job) {
++            _ = h.filling.orderedRemove(i);
++            return;
++        };
++    }
++
++    const fill_patience = 8;
++
+     fn run(h: *LaneHost) void {
+         while (true) {
+             h.takeCancels();
+@@ -544,7 +577,7 @@ pub const LaneHost = struct {
+                 continue;
+             }
+             if (h.core.activeCount() == 0) {
+-                if (h.filling != null) {
++                if (h.filling.items.len > 0) {
+                     h.unlock();
+                     continue;
+                 }
+@@ -572,7 +605,7 @@ pub const LaneHost = struct {
+ 
+     /// A failed round ends every stream it held, with the backend's error.
+     fn failAll(h: *LaneHost, message: []const u8) void {
+-        h.filling = null;
++        h.filling.clearRetainingCapacity();
+         h.lock();
+         const jobs = h.gpa.dupe(*Job, h.admitted.items) catch &.{};
+         h.admitted.clearRetainingCapacity();
+diff --git a/zig/src/core/lane_host_test.zig b/zig/src/core/lane_host_test.zig
+index 265ccb14..4e716a16 100644
+--- a/zig/src/core/lane_host_test.zig
++++ b/zig/src/core/lane_host_test.zig
+@@ -384,3 +384,56 @@ test "a prompt within the first piece runs whole: the decoding stream waits for
+         try history.append(gpa, t);
+     }
+ }
++
++test "a prompt sent while another fills joins it, and the shortest waiting prompt finishes first" {
++    const gpa = std.testing.allocator;
++    var cfg = try lanes.Config.init(gpa, .{ .exact_width = 8, .gpu_tokens = true, .hidden_rows = true }, 8, 7);
++    defer cfg.deinit(gpa);
++    const Watch = struct {
++        mutex: std.Io.Mutex = .init,
++        order: std.ArrayList(Id) = .empty, // prefilled ids in order
++        fn event(ctx: *anyopaque, id: Id, e: *const Event) void {
++            const w: *@This() = @ptrCast(@alignCast(ctx));
++            w.mutex.lockUncancelable(std.testing.io);
++            defer w.mutex.unlock(std.testing.io);
++            switch (e.*) {
++                .prefilled => w.order.append(gpa, id) catch {},
++                else => {},
++            }
++        }
++        fn three(w: *@This()) !void {
++            for (0..20000) |_| {
++                w.mutex.lockUncancelable(std.testing.io);
++                const n = w.order.items.len;
++                w.mutex.unlock(std.testing.io);
++                if (n == 3) return;
++                std.Io.sleep(std.testing.io, .fromMilliseconds(1), .awake) catch {};
++            }
++            return error.Timeout;
++        }
++    };
++    var w: Watch = .{};
++    defer w.order.deinit(gpa);
++    var target: lanes.fake.Fake = .{ .gpa = gpa, .prefill_chunks = 12 };
++    defer target.deinit();
++    var clock: lanes.fake.FixedClock = .{};
++    var core = lanes.Engine.init(gpa, &cfg, target.backend(), clock.clock());
++    defer core.deinit();
++    core.fill_chunks = 1;
++    core.fill_rounds = 1;
++    var host = LaneHost.init(gpa, std.testing.io, &core, .{ .lanes = 4 });
++    try host.start();
++    defer host.stop();
++    const e = host.engine();
++    const pc = [_]u32{ 2, 7, 1, 8, 3 };
++    const pb = [_]u32{ 3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8, 9, 7, 9, 3, 2, 3, 8, 4 };
++    const pa = [_]u32{ 2, 7, 1, 8, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38 };
++    // C runs whole and decodes, so A's pass starts in pieces; B arrives while A fills and joins it
++    try e.submit(1, &.{ .prompt = &pc, .max_tokens = 1_000_000 }, .{ .ctx = &w, .event = Watch.event });
++    try e.submit(2, &.{ .prompt = &pa, .max_tokens = 8 }, .{ .ctx = &w, .event = Watch.event });
++    try e.submit(3, &.{ .prompt = &pb, .max_tokens = 8 }, .{ .ctx = &w, .event = Watch.event });
++    try w.three();
++    // C (admitted first), then B before A: the fewest prompt rows left goes first
++    try std.testing.expectEqualSlices(Id, &.{ 1, 3, 2 }, w.order.items);
++    e.cancel(1);
++}
+diff --git a/zig/src/core/lanes/engine.zig b/zig/src/core/lanes/engine.zig
+index b439d222..3a719ef0 100644
+--- a/zig/src/core/lanes/engine.zig
++++ b/zig/src/core/lanes/engine.zig
+@@ -38,7 +38,7 @@ pub const Engine = struct {
+     steps: u64 = 0,
+     arena: std.heap.ArenaAllocator, // a round's temporaries
+     unread: std.ArrayList(Unread) = .empty, // queued draws the log reads at the step's end
+-    filling: ?*Stream = null, // a stream whose prompt pass runs in pieces between the others' rounds (not live yet)
++    filling: std.ArrayList(*Stream) = .empty, // streams whose prompt pass runs in pieces between the others' rounds (not live yet)
+     fill_chunks: u32 = 0, // a piece's chunks (backend prefill_part; 0: a prompt pass runs whole inside addStream)
+     fill_rounds: u32 = 4, // the live streams' rounds between two pieces
+     fill_first: u32 = 0, // the first piece's chunks (0: fill_chunks): a short prompt then runs whole
+@@ -68,6 +68,7 @@ pub const Engine = struct {
+ 
+     pub fn deinit(e: *Engine) void {
+         e.live.deinit(e.gpa);
++        e.filling.deinit(e.gpa);
+         e.unread.deinit(e.gpa);
+         e.rule.deinit();
+         e.arena.deinit();
+@@ -82,14 +83,13 @@ pub const Engine = struct {
+ 
+     /// Prefill a stream, draw its first token and ask for its first drafts; it takes part from the next round. While
+     /// other streams decode and the backend runs passes in pieces, only the first piece runs here: the stream is then
+-    /// `filling` and fillStep runs the rest between rounds.
++    /// `filling` and fillStream runs the rest between rounds, the shortest waiting prompt first.
+     pub fn addStream(e: *Engine, s: *Stream) !void {
+         _ = e.arena.reset(.retain_capacity);
+         try trail.event(e, &.{ f("ev", str("add")), f("stream", str(s.id)) });
+-        if (e.filling != null) return error.FillBusy;
+-        if (e.fill_chunks > 0 and e.backend.vtable.prefill_part != null and e.activeCount() > 0) {
++        if (e.fill_chunks > 0 and e.backend.vtable.prefill_part != null) {
+             if (!try e.piece(s, if (e.fill_first > 0) e.fill_first else e.fill_chunks)) {
+-                e.filling = s;
++                try e.filling.append(e.gpa, s);
+                 e.rounds_since = 0;
+                 return;
+             }
+@@ -107,23 +107,77 @@ pub const Engine = struct {
+         };
+     }
+ 
+-    /// The filling stream's next piece once the live streams had their rounds (at once when none decodes); true when
+-    /// its prompt pass ended and it joined the rounds. On an error the stream is no longer filling.
+-    pub fn fillStep(e: *Engine) !bool {
+-        const s = e.filling orelse return false;
+-        if (e.activeCount() > 0 and e.rounds_since < e.fill_rounds) return false;
++    /// Whether `s` is mid-pass (its prompt's rows still going in between rounds).
++    pub fn isFilling(e: *const Engine, s: *const Stream) bool {
++        for (e.filling.items) |x| if (@intFromPtr(x) == @intFromPtr(s)) return true;
++        return false;
++    }
++
++    /// Whether the filling streams' next piece is due: none of the live streams decodes, or their rounds between two
++    /// pieces have run.
++    pub fn fillDue(e: *const Engine) bool {
++        if (e.filling.items.len == 0) return false;
++        return e.activeCount() == 0 or e.rounds_since >= e.fill_rounds;
++    }
++
++    /// Prompt rows `s` has left: its pass's end less the rows done (or the kept prefix it resumed from).
++    pub fn fillLeft(e: *const Engine, s: *const Stream) usize {
++        _ = e;
++        return s.prompt_len -| @as(usize, @max(s.cached, s.fill_at));
++    }
++
++    /// The filling stream that goes next: the fewest prompt rows left, oldest of equals; a stream passed over
++    /// `fill_patience` times goes ahead, so every prompt pass keeps moving.
++    pub fn fillNext(e: *Engine) ?*Stream {
++        if (e.filling.items.len == 0) return null;
++        var at: usize = 0;
++        for (e.filling.items, 0..) |j, i| {
++            const best = e.filling.items[at];
++            const aged = j.fill_wait >= fill_patience;
++            const best_aged = best.fill_wait >= fill_patience;
++            if (aged != best_aged) {
++                if (aged) at = i;
++            } else if (aged) {
++                if (j.fill_wait > best.fill_wait) at = i;
++            } else if (e.fillLeft(j) < e.fillLeft(best)) at = i;
++        }
++        for (e.filling.items, 0..) |j, i| j.fill_wait = if (i == at) 0 else j.fill_wait +| 1;
++        return e.filling.items[at];
++    }
++
++    const fill_patience = 8;
++
++    fn unfill(e: *Engine, s: *const Stream) void {
++        for (e.filling.items, 0..) |x, i| if (x == s) {
++            _ = e.filling.orderedRemove(i);
++            return;
++        };
++    }
++
++    /// One piece of `s`'s prompt pass now (the host picks which filling stream goes next); true when the pass ended
++    /// and the stream joined the rounds. On an error the stream is no longer filling.
++    pub fn fillStream(e: *Engine, s: *Stream) !bool {
++        if (!e.isFilling(s)) return error.NotFilling;
+         _ = e.arena.reset(.retain_capacity);
+         e.rounds_since = 0;
+         const done = e.piece(s, e.fill_chunks) catch |err| {
+-            e.filling = null;
++            e.unfill(s);
+             return err;
+         };
+         if (!done) return false;
+-        e.filling = null;
++        e.unfill(s);
+         try e.started(s);
+         return true;
+     }
+ 
++    /// The next piece once the live streams had their rounds (at once when none decodes); true when a pass ended and
++    /// its stream joined the rounds. On an error the stream is no longer filling.
++    pub fn fillStep(e: *Engine) !bool {
++        if (!e.fillDue()) return false;
++        const s = e.fillNext() orelse return false;
++        return e.fillStream(s);
++    }
++
+     /// A prompt pass ended: the first token, the first drafts, and the rounds from the next one.
+     fn started(e: *Engine, s: *Stream) !void {
+         if (s.isCancelled()) { // cancelled in its last chunk: no first token
+@@ -172,7 +226,7 @@ pub const Engine = struct {
+ 
+     /// Release a cancelled stream between rounds: no pending draws or drafts.
+     pub fn discard(e: *Engine, s: *Stream) void {
+-        if (e.filling == s) e.filling = null;
++        e.unfill(s);
+         s.finished = true;
+         s.reason = .cancelled;
+         for (e.live.items, 0..) |x, i| {
+@@ -190,7 +244,7 @@ pub const Engine = struct {
+         const a = e.arena.allocator();
+         try trail.event(e, &.{ f("ev", str("step")), f("index", int(e.steps)) });
+         e.steps += 1;
+-        if (e.filling != null) e.rounds_since += 1;
++        if (e.filling.items.len > 0) e.rounds_since += 1;
+         var live: std.ArrayList(*Stream) = .empty;
+         for (e.live.items) |s| {
+             if (!s.finished and !s.paused) try live.append(a, s);
+diff --git a/zig/src/core/lanes/stream.zig b/zig/src/core/lanes/stream.zig
+index 1d6ba843..090a3855 100644
+--- a/zig/src/core/lanes/stream.zig
++++ b/zig/src/core/lanes/stream.zig
+@@ -158,6 +158,8 @@ pub const Stream = struct {
+     reuse: Reuse = .{},
+     images: []const Image = &.{},
+     cached: u32 = 0, // prompt tokens the backend restored from `reuse` (its prompt pass started there)
++    fill_at: u32 = 0, // prompt rows its pass has done (a backend that runs the pass in pieces sets it)
++    fill_wait: u32 = 0, // fill choices since its last piece (the engine's patience: every pass keeps moving)
+     reuse_failed: bool = false, // the backend's restore of `reuse` failed: it prefilled from 0
+     context: std.ArrayList(u32) = .empty,
+     pending: ?u32 = null,
+diff --git a/zig/src/families/dsv41/lanes.zig b/zig/src/families/dsv41/lanes.zig
+index 5b0cc49e..13c30845 100644
+--- a/zig/src/families/dsv41/lanes.zig
++++ b/zig/src/families/dsv41/lanes.zig
+@@ -296,7 +296,24 @@ fn noteStale(sn: *const Snap, why: []const u8) void {
+ }
+ 
+ /// A prompt pass between its pieces: the chunk it runs next and what its chunk loop reads.
+-const Fill = struct { s: *const lanes.Stream, slot: usize, len: usize, replay: usize, last_end: usize, start: usize, head: bool = false };
++/// A prompt pass in progress: where it stands, and its image spans and rows (re-sent to rank 1 when another pass's
++/// pieces ran in between: the model's fill state is one pass's at a time).
++const Fill = struct {
++    s: *const lanes.Stream,
++    slot: usize,
++    len: usize,
++    replay: usize,
++    last_end: usize,
++    start: usize,
++    head: bool = false,
++    spans: std.ArrayList(@import("prompt.zig").Span) = .empty,
++    rows: std.ArrayList(u8) = .empty,
++
++    fn destroy(fl: *Fill, gpa: std.mem.Allocator) void {
++        fl.spans.deinit(gpa);
++        fl.rows.deinit(gpa);
++    }
++};
+ 
+ /// How long a request waits for the live stream that holds the kept state it resumes from to end (then it resumes
+ /// in place and every kept state stays) before other kept states give their room for a copy of it.
+@@ -326,7 +343,8 @@ pub const Lanes = struct {
+     next: u64 = 0,
+     snaps: std.ArrayList(*Snap) = .empty, // kept prompt states, oldest first
+     next_snap: u64 = 1,
+-    fill: ?Fill = null, // the prompt pass that runs in pieces between rounds, from its next chunk
++    fills: [max_streams]?Fill = @splat(null), // the prompt passes that run in pieces between rounds (by slot), each from its next chunk
++    cur: ?usize = null, // the slot whose pass the model's fill state (fillBegin's view, images, read-ahead) holds
+ 
+     pub fn init(gpa: std.mem.Allocator, m: *Model) Lanes {
+         var ln: Lanes = .{ .gpa = gpa, .m = m, .peer = if (m.world > 1) m.peer() else null };
+@@ -344,6 +362,7 @@ pub const Lanes = struct {
+             self.gpa.destroy(sn);
+         }
+         self.snaps.deinit(self.gpa);
++        for (&self.fills) |*f| if (f.*) |*x| x.destroy(self.gpa);
+         if (self.peer != null) self.send(.done) catch {};
+         self.streams.deinit(self.gpa);
+         for (&self.seqs) |*q| q.deinit(self.gpa);
+@@ -438,17 +457,31 @@ pub const Lanes = struct {
+         return of(ptr).prefillPart(s, chunks);
+     }
+ 
++    /// The pass `s` fills, if one runs.
++    fn fillOf(self: *Lanes, s: *const lanes.Stream) ?*Fill {
++        for (&self.fills) |*f| if (f.*) |*x| if (x.s == s) return x;
++        return null;
++    }
++
++    /// Slot `slot`'s pass ends (done, failed or released): its parked images go.
++    fn dropFill(self: *Lanes, slot: usize) void {
++        if (self.fills[slot]) |*f| f.destroy(self.gpa);
++        self.fills[slot] = null;
++        if (self.cur == slot) self.cur = null;
++    }
++
+     fn prefillPart(self: *Lanes, s: *lanes.Stream, chunks: usize) !bool {
+         const m = self.m;
+         const t0 = m.now();
+         defer if (self.prof) |*p| {
+             p.prefill += m.now() - t0;
+         };
+-        if (self.fill) |f| {
+-            if (f.s != s) return error.FillBusy;
+-        } else try self.fillOpen(s);
+-        errdefer self.fill = null;
+-        const f = &self.fill.?;
++        const f = self.fillOf(s) orelse blk: {
++            try self.fillOpen(s);
++            break :blk self.fillOf(s).?;
++        };
++        errdefer self.dropFill(f.slot);
++        if (self.cur != f.slot) try self.fillSwitch(f);
+         const seq = self.seqs[f.slot].items;
+         m.fill_seq = seq;
+         // a round may run before the next piece: the read-ahead done and the prompt's ids gone, as rank 1 does at its frame
+@@ -470,20 +503,23 @@ pub const Lanes = struct {
+             }
+             f.head = try m.fillChunk(seq[0 .. start + n], start, n, f.replay);
+             f.start += n;
++            s.fill_at = @intCast(f.start);
+             if (s.reuse.hook) |k| if (f.start < len and f.start <= f.replay and (f.start == f.last_end or markEnds(s.reuse.marks, f.start))) k.at(k.ptr, s, @intCast(f.start));
+         }
+         if (f.start < f.len) return false;
+-        const done = f.*;
+-        self.fill = null;
++        const slot = f.slot;
++        const len = f.len;
++        const head = f.head;
++        self.dropFill(slot);
+         if (self.prof) |*p| p.prefills += 1;
+-        if (!done.head) return error.NoPromptLogits;
++        if (!head) return error.NoPromptLogits;
+         const logits = try m.promptLogitsHost();
+         if (logits_sha) {
+             var dg: [32]u8 = undefined;
+             std.crypto.hash.sha2.Sha256.hash(std.mem.sliceAsBytes(logits), &dg, .{});
+             std.debug.print("{{\"prompt_logits\": \"{s}\", \"sha256\": \"{s}\"}}\n", .{ s.id, std.fmt.bytesToHex(dg, .lower) });
+         }
+-        const token = try draw(logits, done.len, s.sampling);
++        const token = try draw(logits, len, s.sampling);
+         self.streams.getPtr(s).?.first = self.take(token);
+         return true;
+     }
+@@ -617,7 +653,49 @@ pub const Lanes = struct {
+         // where this pass keeps states: the cache's marks and its last chunk end before the replay (the served lane's
+         // kept prompt), each at the chunk end at or before it
+         const last_end = @min(replay, len - 1) / model.chunk_rows * model.chunk_rows;
+-        self.fill = .{ .s = s, .slot = slot, .len = len, .replay = replay, .last_end = last_end, .start = start };
++        self.fills[slot] = .{ .s = s, .slot = slot, .len = len, .replay = replay, .last_end = last_end, .start = start };
++        errdefer self.dropFill(slot);
++        self.cur = slot;
++        const f = &self.fills[slot].?;
++        try f.spans.appendSlice(gpa, spans.items);
++        try f.rows.appendSlice(gpa, rows.items);
++    }
++
++    /// The model's fill state set to `f`'s pass again after another pass's pieces ran in between: fillBegin's view,
++    /// window rings and slot (its Engram read-ahead dropped: rows read for another prompt are not this one's), then its
++    /// images, as its first chunk did.
++    fn fillSwitch(self: *Lanes, f: *const Fill) !void {
++        const m = self.m;
++        const gpa = self.gpa;
++        const l = self.streams.getPtr(f.s) orelse return error.UnknownStream;
++        m.joinAhead();
++        m.fill_seq = &.{};
++        if (try self.begin(.fill_begin)) {
++            try self.wire.int(gpa, u32, @intCast(f.slot));
++            try self.wire.int(gpa, u64, l.base);
++            try self.wire.ids(gpa, self.seqs[f.slot].items);
++            try self.flush();
++        }
++        try m.fillBegin(f.slot, l.base);
++        if (f.spans.items.len > 0) {
++            var off: usize = 0;
++            while (off < f.rows.items.len) {
++                const n = @min(image_piece, f.rows.items.len - off);
++                if (try self.begin(.fill_images)) {
++                    try self.wire.int(gpa, u32, @intCast(f.spans.items.len));
++                    for (f.spans.items) |sp| {
++                        try self.wire.int(gpa, u64, sp.at);
++                        try self.wire.int(gpa, u64, sp.len);
++                    }
++                    try self.wire.int(gpa, u64, off);
++                    try self.wire.buf.appendSlice(gpa, f.rows.items[off..][0..n]);
++                    try self.flush();
++                }
++                off += n;
++            }
++            try m.setImages(f.spans.items, f.rows.items);
++        }
++        self.cur = f.slot;
+     }
+ 
+     fn firstFn(ptr: *anyopaque, s: *lanes.Stream, position: u64) anyerror!u64 {
+@@ -902,11 +980,11 @@ pub const Lanes = struct {
+ 
+     fn releaseFn(ptr: *anyopaque, s: *lanes.Stream) void {
+         const self = of(ptr);
+-        if (self.fill) |f| if (f.s == s) {
++        if (self.fillOf(s)) |f| {
+             self.m.joinAhead();
+             self.m.fill_seq = &.{};
+-            self.fill = null;
+-        };
++            self.dropFill(f.slot);
++        }
+         const kv = self.streams.fetchRemove(s) orelse return;
+         self.used[kv.value.slot] = false;
+     }
+-- 
+2.54.0 (Apple Git-157)
+
