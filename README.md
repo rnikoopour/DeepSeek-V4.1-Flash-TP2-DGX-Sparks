@@ -94,10 +94,12 @@ before step 2 and keep it set for the scripts). Commands run on rank 0 unless no
 
 1. **Image** (both nodes): `docker pull nvcr.io/nvidia/pytorch:26.07-py3`.
 2. **Engine**: clone this repository on rank 0 and run [launch/setup.sh](launch/setup.sh). It fetches Zig 0.17.0 and
-   bertholomus/TensorFold at `2aa3c47`, applies `patches/*.patch` with `git am`, and copies the launch scripts and a
-   template `config.tp2.env` into `BASE`.
-3. **Config**: edit `BASE/config.tp2.env`: the two nodes' user and address on the QSFP link, the RoCE HCAs and netdev
-   (`ibdev2netdev`), and the RoCE v2 GID index (see the comments). Only rank 0 reads it.
+   bertholomus/TensorFold at `2aa3c47`, applies `patches/*.patch` with `git am`, and copies the launch scripts,
+   `config.tp2.env` and a starter `site.env` into `BASE`. Rerunning it replaces `config.tp2.env` (an edited copy is kept
+   as `config.tp2.env.bak`) and leaves `site.env` alone.
+3. **Config**: edit `BASE/site.env`, which `config.tp2.env` sources last: the two nodes' user and address on the QSFP
+   link, plus anything else of `config.tp2.env` that differs on your pair (the RoCE HCAs and netdev from
+   `ibdev2netdev`, the RoCE v2 GID index; see the comments). Only rank 0 reads it.
 4. **Build**: `BASE/run_build.sh` (the build container, no GPU, a few minutes), then `BASE/install_engine.sh` to put the
    binaries in `BASE/engine-bin` on both nodes.
 5. **Weights** (rank 0): `HF_HUB_DISABLE_XET=1 hf download LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw --local-dir <PACK>`.

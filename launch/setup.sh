@@ -15,5 +15,13 @@ git -c user.name=tp2-lane -c user.email=tp2-lane@localhost am -q "$here"/../patc
 git log --oneline -8
 cp "$here"/build.sh "$here"/run_build.sh "$here"/node_run.sh "$here"/serve_tp2.sh "$here"/start_tp2.sh "$here"/stop_tp2.sh \
   "$here"/precheck_tp2.sh "$here"/install_engine.sh "$here"/inputs_tp2.sh $B/
-[ -f $B/config.tp2.env ] || sed "s|^BASE=.*|BASE=$B|" "$here"/config.tp2.env > $B/config.tp2.env
-echo "SETUP DONE: edit $B/config.tp2.env, then $B/run_build.sh"
+# config.tp2.env always follows this repo; a copy edited in place is kept as .bak (move those edits to site.env)
+sed "s|^BASE=.*|BASE=$B|" "$here"/config.tp2.env > $B/config.tp2.env.new
+if [ -f $B/config.tp2.env ] && ! cmp -s $B/config.tp2.env $B/config.tp2.env.new; then cp $B/config.tp2.env $B/config.tp2.env.bak; fi
+mv $B/config.tp2.env.new $B/config.tp2.env
+[ -f $B/site.env ] || cat > $B/site.env <<'SITE'
+# This machine's lane settings, sourced at the end of config.tp2.env (see its comments). setup.sh never overwrites it.
+NODES="<user>@<rank0-ip> <user>@<rank1-ip>" # rank 0 first: addresses on the direct QSFP link between the two Sparks
+MASTER_IP="<rank0-ip>"                     # rank 0's address on that link
+SITE
+echo "SETUP DONE: edit $B/site.env, then $B/run_build.sh"
