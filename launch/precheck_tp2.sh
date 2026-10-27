@@ -6,6 +6,7 @@
 CFG=${DSV41_CONFIG:-${TP2_BASE:-/var/tmp/tf1017-tp2}/config.tp2.env}
 [ -r "$CFG" ] || { echo "FAIL: no $CFG"; exit 1; }
 source "$CFG"
+case "$NODES $MASTER_IP" in *'<'*) echo "FAIL: NODES / MASTER_IP still hold placeholders: fill them in site.env (README step 3)"; exit 1 ;; esac
 read -ra N <<< "$NODES"
 hca=${RDMA_HCA%%,*}; rc=0; rank=0
 bad() { echo "FAIL: $*"; rc=1; }

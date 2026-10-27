@@ -97,9 +97,30 @@ before step 2 and keep it set for the scripts). Commands run on rank 0 unless no
    bertholomus/TensorFold at `2aa3c47`, applies `patches/*.patch` with `git am`, and copies the launch scripts,
    `config.tp2.env` and a starter `site.env` into `BASE`. Rerunning it replaces `config.tp2.env` (an edited copy is kept
    as `config.tp2.env.bak`) and leaves `site.env` alone.
-3. **Config**: edit `BASE/site.env`, which `config.tp2.env` sources last: the two nodes' user and address on the QSFP
-   link, plus anything else of `config.tp2.env` that differs on your pair (the RoCE HCAs and netdev from
-   `ibdev2netdev`, the RoCE v2 GID index; see the comments). Only rank 0 reads it.
+3. **Config**: fill in `BASE/site.env` on rank 0 (only rank 0 reads it). `config.tp2.env` sources it last, so any of
+   its settings can be overridden there; don't edit `config.tp2.env` itself, since `setup.sh` replaces it. The two
+   values every pair must set are the placeholders setup writes:
+
+   ```sh
+   NODES="<user>@<rank0-ip> <user>@<rank1-ip>"   # rank 0 first
+   MASTER_IP="<rank0-ip>"
+   ```
+
+   - `<rank0-ip>` / `<rank1-ip>`: each node's address on the direct QSFP link between the two Sparks (`ip -4 addr show
+     <NET_IF>`), not its LAN address.
+   - `<user>`: the account the lane runs as. Rank 0 must reach both nodes, itself included, as that user with
+     `ssh -o BatchMode=yes` (keys, no prompt), and the user must be in the `docker` group on both.
+
+   Check these against your pair too; the defaults are stock DGX OS and usually need no change:
+
+   - `RDMA_HCA` / `NET_IF`: the RoCE devices and netdev of the QSFP link, from `ibdev2netdev` (the port that is `Up`).
+   - The RoCE v2 GID index (`TF_RDMA_GID_INDEX` / `NCCL_IB_GID_INDEX` in `ENGINE_ENV`, default 3):
+     `cat /sys/class/infiniband/<hca>/ports/1/gid_attrs/types/<i>` must read `RoCE v2`.
+   - `HOST`: no API key is set, so bind to an address only trusted clients reach, or add `--api-key` to `SERVER_FLAGS`
+     (`SERVER_FLAGS="$SERVER_FLAGS --api-key <key>"` in `site.env` keeps the tuned flags).
+
+   Optional: `EXPECT_CONFIG_SHA`, `EXPECT_KMAP_SHA` and `EXPECT_INDEX_SHA` (sha256 of `config.json`, `exl3_k_map.json` and
+   `model.safetensors.index.json` in `MODEL_DIR`) make the precheck refuse a model dir that differs from yours.
 4. **Build**: `BASE/run_build.sh` (the build container, no GPU, a few minutes), then `BASE/install_engine.sh` to put the
    binaries in `BASE/engine-bin` on both nodes.
 5. **Weights** (rank 0): `HF_HUB_DISABLE_XET=1 hf download LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw --local-dir <PACK>`.
