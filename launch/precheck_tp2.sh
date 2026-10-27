@@ -31,7 +31,7 @@ for t in "${N[@]}"; do
     echo \"pin-index \$(sha256sum '$MODEL_DIR'/model.safetensors.index.json 2>/dev/null | cut -c1-64)\"")
   echo "== $t (rank $rank)"; echo "$out"
   # NODES must name an account this user (the service runs as its User=) can reach without a password
-  [ -n "$out" ] || { bad "$t not reachable by ssh as $(id -un) (check NODES in $CFG)"; rank=$((rank+1)); continue; }
+  [ -n "$out" ] || { bad "$t not reachable by ssh as $(id -un) (check NODES in site.env)"; rank=$((rank+1)); continue; }
   echo "$out" | grep -q "^containers .*$LANE" && bad "$t already runs $LANE"
   [ "$(echo "$out" | awk '/^gpuprocs/ {print $2}')" = 0 ] || bad "$t has GPU processes"
   # the engine takes the one cache file in the folder and refuses a folder with several
