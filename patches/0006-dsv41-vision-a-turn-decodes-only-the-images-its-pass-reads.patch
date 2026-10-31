@@ -1,0 +1,205 @@
+From a9c6a3d5a981c540553e13c3362725255a61632e Mon Sep 17 00:00:00 2001
+From: tp2-lane <tp2-lane@localhost>
+Date: Sat, 31 Oct 2026 10:20:22 -0700
+Subject: [PATCH] dsv41 vision: a turn decodes only the images its pass reads
+
+An image the server prepared before (by its bytes digest) goes to the lane as
+its bytes, its span length remembered; the lane prepares it only if the pass
+reads its span. The prompt cache keys images by their bytes digest.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ zig/src/core/lanes/stream.zig     |  7 +++-
+ zig/src/families/dsv41/lanes.zig  |  6 ++--
+ zig/src/families/dsv41/vision.zig | 60 ++++++++++++++++++++++++++++++-
+ zig/src/server/prompt.zig         | 29 +++++++++------
+ 4 files changed, 87 insertions(+), 15 deletions(-)
+
+diff --git a/zig/src/core/lanes/stream.zig b/zig/src/core/lanes/stream.zig
+index 090a3855..cba1e951 100644
+--- a/zig/src/core/lanes/stream.zig
++++ b/zig/src/core/lanes/stream.zig
+@@ -97,12 +97,14 @@ pub const Held = struct {
+ 
+ /// An image in the prompt (a vision family's): the span of `tokens` positions from `at` it fills (each position carries
+ /// the image token id), and the payload its family's Vision.prepare made, or with `rows` its span's embedding rows
+-/// ready (a gate's input).
++/// ready (a gate's input), or with `raw` the image's own file bytes, its picture made only if a pass reads its span
++/// (Vision.known: the server prepared these bytes before, so it knows their span without decoding them again).
+ pub const Image = struct {
+     at: u32,
+     tokens: u32,
+     bytes: []const u8,
+     rows: bool = false,
++    raw: bool = false,
+ };
+ 
+ /// A vision family's image input as a server renders it (engine_api.Info.vision): each image part becomes
+@@ -113,6 +115,9 @@ pub const Vision = struct {
+     placeholder: []const u8,
+     token: u32,
+     prepare: *const fn (ctx: *anyopaque, a: Allocator, bytes: []const u8, problem: *[]const u8) PrepareError!Prepared,
++    /// The span of an image whose exact bytes `prepare` took before (null: not known), so the server can hand the
++    /// bytes on as an Image with `raw` and the backend prepares them only when a pass reads their span.
++    known: ?*const fn (ctx: *anyopaque, bytes: []const u8) ?u32 = null,
+ 
+     pub const Prepared = struct { tokens: u32, payload: []const u8 };
+     pub const PrepareError = error{ BadImage, OutOfMemory };
+diff --git a/zig/src/families/dsv41/lanes.zig b/zig/src/families/dsv41/lanes.zig
+index d5eec505..3afeee7e 100644
+--- a/zig/src/families/dsv41/lanes.zig
++++ b/zig/src/families/dsv41/lanes.zig
+@@ -604,9 +604,11 @@ pub const Lanes = struct {
+                     if (img.bytes.len != img.tokens * row_bytes) return error.BadImageRows;
+                     try rows.appendSlice(gpa, img.bytes);
+                 } else {
+-                    // a prepared picture (vision.zig): the tower's span rows, here on rank 0
++                    // a prepared picture (vision.zig), or an image's bytes to prepare now (raw: one the server knew):
++                    // the tower's span rows, here on rank 0
+                     const v = self.vision orelse return error.NoVisionTower;
+-                    if (try v.rows(img.bytes, gpa, &rows) != img.tokens) return error.BadImageSpan;
++                    const got = if (img.raw) try v.rowsRaw(img.bytes, gpa, &rows) else try v.rows(img.bytes, gpa, &rows);
++                    if (got != img.tokens) return error.BadImageSpan;
+                 }
+                 try spans.append(gpa, .{ .at = img.at, .len = img.tokens, .row = at_row });
+                 at_row += img.tokens;
+diff --git a/zig/src/families/dsv41/vision.zig b/zig/src/families/dsv41/vision.zig
+index ea82917d..2176c0b3 100644
+--- a/zig/src/families/dsv41/vision.zig
++++ b/zig/src/families/dsv41/vision.zig
+@@ -18,6 +18,40 @@ const header_bytes = 32;
+ /// The span a picture can take at most (picture.Config.max_tokens aligner rows, a newline each row, the delimiters).
+ const max_span = 4096;
+ 
++/// The spans of images prepared so far by their bytes' digest, so a turn needn't decode again the screenshots every
++/// earlier turn of its chat carried (a picture is ~0.1 s of PNG decode, resize and patchify on the request's thread).
++/// Direct-mapped and lock-free, one u64 a slot: the digest's bits above `span_bits` and the span below (0: empty), the
++/// slot from the digest's low bits, so a match compares 63 of the digest's 64 bits. The request threads share it.
++const Seen = struct {
++    const slots = 4096;
++    const span_bits = 13; // max_span < 1 << span_bits
++    const span_mask: u64 = (1 << span_bits) - 1;
++    table: [slots]std.atomic.Value(u64) = @splat(.init(0)),
++
++    fn get(s: *Seen, bytes: []const u8) ?u32 {
++        const h = std.hash.Wyhash.hash(0, bytes);
++        const e = s.table[h % slots].load(.acquire);
++        if (e & span_mask == 0 or e & ~span_mask != h & ~span_mask) return null;
++        return @intCast(e & span_mask);
++    }
++
++    fn put(s: *Seen, bytes: []const u8, span: u32) void {
++        if (span == 0 or span > span_mask) return;
++        const h = std.hash.Wyhash.hash(0, bytes);
++        s.table[h % slots].store((h & ~span_mask) | span, .release);
++    }
++};
++
++test "a prepared image's span is known by its bytes, and only by them" {
++    var s: Seen = .{};
++    try std.testing.expectEqual(@as(?u32, null), s.get("pixels"));
++    s.put("pixels", 189);
++    try std.testing.expectEqual(@as(?u32, 189), s.get("pixels"));
++    try std.testing.expectEqual(@as(?u32, null), s.get("other pixels"));
++    s.put("pixels", 1024);
++    try std.testing.expectEqual(@as(?u32, 1024), s.get("pixels"));
++}
++
+ pub const Vision = struct {
+     gpa: std.mem.Allocator,
+     m: *model.Model,
+@@ -26,6 +60,7 @@ pub const Vision = struct {
+     span: cuda.DeviceBuffer, // bf16 [max_span, 5120]: a picture's span rows
+     scratch: cuda.DeviceBuffer, // the span's types and rows (Tower.spanRows)
+     pil: ?*pil.Pil = null, // the formats picture.zig does not decode (null: no python3 with Pillow here)
++    seen: Seen = .{}, // the spans of the images prepared so far, by their bytes' digest
+ 
+     /// The tower on `m`'s stream (its exact kernels and cuBLAS handle, as the tower gate ran them), its weights from
+     /// the checkpoint, torch's attention cubin from the kit's vision/, and its workspace for the largest picture.
+@@ -64,13 +99,36 @@ pub const Vision = struct {
+ 
+     /// The server's view: the placeholder the template renders for each image and the picture it prepares.
+     pub fn hook(v: *Vision) lanes.stream.Vision {
+-        return .{ .ctx = v, .placeholder = placeholder, .token = v.m.cfg.image_token.?, .prepare = prepareFn };
++        return .{ .ctx = v, .placeholder = placeholder, .token = v.m.cfg.image_token.?, .prepare = prepareFn, .known = knownFn };
+     }
+ 
+     pub const placeholder = "<\u{ff5c}deepseek_image\u{ff5c}>";
+ 
++    fn knownFn(ctx: *anyopaque, bytes: []const u8) ?u32 {
++        const v: *Vision = @ptrCast(@alignCast(ctx));
++        return v.seen.get(bytes);
++    }
++
+     fn prepareFn(ctx: *anyopaque, a: std.mem.Allocator, bytes: []const u8, problem: *[]const u8) lanes.stream.Vision.PrepareError!lanes.stream.Vision.Prepared {
+         const v: *Vision = @ptrCast(@alignCast(ctx));
++        const prep = try v.prepare(a, bytes, problem);
++        v.seen.put(bytes, prep.tokens);
++        return prep;
++    }
++
++    /// The span rows of an image handed on as its file bytes (Image.raw): prepared here, at the pass that reads them.
++    pub fn rowsRaw(v: *Vision, bytes: []const u8, gpa: std.mem.Allocator, out: *std.ArrayList(u8)) !usize {
++        var arena: std.heap.ArenaAllocator = .init(gpa);
++        defer arena.deinit();
++        var problem: []const u8 = "";
++        const prep = v.prepare(arena.allocator(), bytes, &problem) catch |err| {
++            if (err == error.BadImage) std.debug.print("{{\"vision\": \"a known image failed to prepare: {s}\"}}\n", .{problem});
++            return err;
++        };
++        return v.rows(prep.payload, gpa, out);
++    }
++
++    fn prepare(v: *Vision, a: std.mem.Allocator, bytes: []const u8, problem: *[]const u8) lanes.stream.Vision.PrepareError!lanes.stream.Vision.Prepared {
+         var rgb = try v.decode(a, bytes, problem);
+         defer rgb.deinit(a);
+         var pic = picture.fromRgb(a, rgb, v.cfg) catch |err| {
+diff --git a/zig/src/server/prompt.zig b/zig/src/server/prompt.zig
+index 605fa18c..05282f6f 100644
+--- a/zig/src/server/prompt.zig
++++ b/zig/src/server/prompt.zig
+@@ -77,23 +77,30 @@ fn spans(srv: *Server, cx: *Cx, ids: []const u32, history_len: usize, images: []
+         }
+         const k = placed.items.len;
+         if (k >= images.len) return cx.refuse("image input: the prompt holds more image placeholders than images");
+-        var problem: []const u8 = "";
+-        const prep = vision.prepare(vision.ctx, cx.a, images[k], &problem) catch |e| switch (e) {
+-            error.OutOfMemory => return error.OutOfMemory,
+-            error.BadImage => return cx.refuse(problem),
++        // an image prepared before (an earlier turn's screenshot) goes on as its bytes, prepared only if the pass reads
++        // it (most sit in the part a kept state restores); a new one is prepared here, so a bad image is refused here
++        const known: ?u32 = if (vision.known) |f| f(vision.ctx, images[k]) else null;
++        const img: api.Image = if (known) |t| .{ .at = @intCast(out.items.len), .tokens = t, .bytes = images[k], .raw = true } else blk: {
++            var problem: []const u8 = "";
++            const prep = vision.prepare(vision.ctx, cx.a, images[k], &problem) catch |e| switch (e) {
++                error.OutOfMemory => return error.OutOfMemory,
++                error.BadImage => return cx.refuse(problem),
++            };
++            break :blk .{ .at = @intCast(out.items.len), .tokens = prep.tokens, .bytes = prep.payload };
+         };
+-        try placed.append(cx.a, .{ .at = @intCast(out.items.len), .tokens = prep.tokens, .bytes = prep.payload });
+-        try out.appendNTimes(cx.a, vision.token, prep.tokens);
+-        try spellImage(cx.a, &key, prep.payload, prep.tokens);
+-        if (i < history_len) history_extra += prep.tokens - 1;
++        try placed.append(cx.a, img);
++        try out.appendNTimes(cx.a, vision.token, img.tokens);
++        try spellImage(cx.a, &key, images[k], img.tokens);
++        if (i < history_len) history_extra += img.tokens - 1;
+     }
+     if (placed.items.len != images.len) return cx.refuse("image input: the prompt holds fewer image placeholders than images");
+     return .{ .ids = out.items, .images = placed.items, .cache_key = key.items, .history_len = if (history_len > 0) history_len + history_extra else 0 };
+ }
+ 
+-/// An image span as the cache key spells it: ids past every vocabulary's, one a position, from the payload's digest.
+-fn spellImage(a: std.mem.Allocator, key: *std.ArrayList(u32), payload: []const u8, tokens: u32) !void {
+-    const h = std.hash.Wyhash.hash(0, payload);
++/// An image span as the cache key spells it: ids past every vocabulary's, one a position, from the digest of the image's
++/// bytes (its picture follows from them, and a known image is matched without being prepared).
++fn spellImage(a: std.mem.Allocator, key: *std.ArrayList(u32), bytes: []const u8, tokens: u32) !void {
++    const h = std.hash.Wyhash.hash(0, bytes);
+     for (0..tokens) |j| try key.append(a, 0x8000_0000 | @as(u32, @truncate((h +% @as(u64, j) *% 0x9e37_79b9_7f4a_7c15) >> 33)));
+ }
+ 
+-- 
+2.43.0
+

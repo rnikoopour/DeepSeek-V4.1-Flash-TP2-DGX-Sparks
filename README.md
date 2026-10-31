@@ -6,7 +6,7 @@ DGX Sparks (GB10, tensor parallel over the direct QSFP link), with LibertAI's 2.
 
 This is a trimmed fork of [tonyd2wild/DeepSeek-V4.1-Flash-TP2-and-TP4-DGX-Sparks](https://github.com/tonyd2wild/DeepSeek-V4.1-Flash-TP2-and-TP4-DGX-Sparks).
 It keeps only that repository's TP2 lane. Its two daily-use fixes started as local engine patches and are now upstream in
-`bertholomus/TensorFold`'s `deepseek-v41-zig` branch, so the lane runs branch head and carries five patches (0001-0005) instead of seven:
+`bertholomus/TensorFold`'s `deepseek-v41-zig` branch, so the lane runs branch head and carries six patches (0001-0006) instead of seven:
 
 1. **A long chat with an image re-read its whole context every turn.** The engine's prompt cache matched kept states by
    token ids, and every image is its placeholder token repeated, so any request holding an image skipped the cache. Now
@@ -30,6 +30,7 @@ throughput numbers come from one session on one freshly rebooted pair (next sect
 | Patch `0003` | `tf-dsv41-rank-cache` and `tf-dsv41-check` take one or two ranks (the four-node parity split is not here) | rank-cache building on this pair; needed to serve |
 | Patch `0004` | upstream took the chunked pass (`a27d2f00`) but not shortest-waiting-first scheduling | a prompt arriving mid-pass joins it, shortest waiting goes first: 0.84 s TTFT sent 2 s into a 44K pass; 213 unit tests pass |
 | Patch `0005` | a pass resumed from a kept state still ran every image of the prompt through the vision tower and sent its rows to rank 1, though it only reads from the kept state's chunk end on: ~0.75 s an image every turn (15.4 s for a 1.6K-token turn with 20 screenshots cached) | images wholly before the resume point make no rows; their positions are still marked. That turn: 15.4 &rarr; 3.2-3.9 s; replies identical cold and warm by `token_sha` (8 images, greedy); 61/61 host tests pass |
+| Patch `0006` | every turn still decoded every image of the chat on the request's thread (PNG decode, resize, patchify: ~0.06-0.1 s an image) for the cache key's digest, though `0005` reads only the images past the resume point | the server remembers each prepared image's span by its bytes' digest (lock-free, 4,096 slots); a known image goes to the lane as its bytes and is prepared there only if the pass reads its span, so a bad image is still refused at the request. The cache keys images by their bytes' digest (one cold read per session after the switch). Warm 20-screenshot turn: 3.2-3.9 &rarr; 2.4 s; the same prompt read with all 8 images prepared up front and with the images past the resume point prepared at the pass: identical replies by `token_sha` (greedy); 214/214 host tests pass |
 | `TF_FILL_CHUNKS=1` | one long cold pass ran whole and stalled every other stream on the pair | other streams keep decoding; prefill costs nothing (whole pass within 0.3% of chunked) |
 | `TF_DS_ENGRAM_LEAD=1` | on the old pin each Engram layer read its next chunk's rows twice (1,411 tok/s at 8K) | pre-reboot +11-13% (8K 1,411&rarr;1,569, 32K 1,413&rarr;1,602); after a reboot every config already reads 2,400+, so it costs nothing and only pays on a fragmented boot |
 | `--max-tokens 131072` | thinking counts against the cap, so 32,768 could truncate a long turn before its answer | no throughput cost; long reasoning turns fit |
@@ -148,7 +149,7 @@ still has a `tp2-lane` container).
 
 ## Engine pin and patches
 
-`launch/setup.sh` checks out the branch-head pin `2aa3c47` and applies `patches/0001`-`0005` as commits; `launch/run_build.sh`
+`launch/setup.sh` checks out the branch-head pin `2aa3c47` and applies `patches/0001`-`0006` as commits; `launch/run_build.sh`
 builds it and `launch/install_engine.sh` installs into `BASE/engine-bin`. Nothing in that path overwrites an existing
 build elsewhere.
 
@@ -158,7 +159,7 @@ prompts drafted, concurrent == solo, 9 image prompts alone, 18 image requests fo
 
 ## Verification (2026-10-23)
 
-Engine `2aa3c47` + patches `0001`-`0004` (`0005` came after these numbers and does not change a cold pass), with `TF_FILL_CHUNKS=1`, `TF_DS_ENGRAM_LEAD=1`, `--max-tokens 131072` and
+Engine `2aa3c47` + patches `0001`-`0004` (`0005` and `0006` came after these numbers and do not change a cold pass), with `TF_FILL_CHUNKS=1`, `TF_DS_ENGRAM_LEAD=1`, `--max-tokens 131072` and
 `--prompt-cache-gib 3`.
 
 | Gate | Result |
