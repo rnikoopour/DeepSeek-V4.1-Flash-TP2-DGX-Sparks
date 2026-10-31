@@ -1,0 +1,41 @@
+From e48d338216fa55b9beff1df313495d8b0389dce8 Mon Sep 17 00:00:00 2001
+From: tp2-lane <tp2-lane@localhost>
+Date: Sat, 31 Oct 2026 08:46:04 -0700
+Subject: [PATCH] lanes: a pass resumed from a kept state skips the images
+ wholly before its resume point
+
+A long chat with screenshots ran every image through the vision tower, and
+sent its rows to rank 1, on every turn, though a resumed pass only reads from
+the kept state's chunk end on: ~0.75 s an image at 1440x900, 15 s for a
+1.6K-token turn with 20 images in its cached prefix. Their positions are still
+marked dead in the sequence; only their rows are not made.
+---
+ zig/src/families/dsv41/lanes.zig | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/zig/src/families/dsv41/lanes.zig b/zig/src/families/dsv41/lanes.zig
+index 13c30845..d5eec505 100644
+--- a/zig/src/families/dsv41/lanes.zig
++++ b/zig/src/families/dsv41/lanes.zig
+@@ -588,6 +588,10 @@ pub const Lanes = struct {
+         if (s.images.len > 0) {
+             const image_id = m.cfg.image_token orelse return error.NoVision;
+             const row_bytes = m.cfg.hidden * 2;
++            // a pass that resumes from a kept state reads from its chunk end on: an image wholly before it is in the
++            // restored rows, so its span needs no tower pass and no rows sent to rank 1 (a long chat with screenshots
++            // ran every image through the tower on every turn, ~0.75 s an image)
++            const resume_at: usize = if (kept) |sn| sn.at else 0;
+             var at_row: usize = 0;
+             for (s.images) |img| {
+                 if (img.tokens == 0 or @as(usize, img.at) + img.tokens > len) return error.BadImageSpan;
+@@ -595,6 +599,7 @@ pub const Lanes = struct {
+                     if (q.* != @as(i64, image_id)) return error.BadImageSpan;
+                     q.* = -1;
+                 }
++                if (@as(usize, img.at) + img.tokens <= resume_at) continue;
+                 if (img.rows) {
+                     if (img.bytes.len != img.tokens * row_bytes) return error.BadImageRows;
+                     try rows.appendSlice(gpa, img.bytes);
+-- 
+2.43.0
+

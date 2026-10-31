@@ -1,6 +1,6 @@
 #!/bin/bash
 # setup.sh (rank 0): Zig 0.17.0 and the engine, patched, under TP2_BASE (default /var/tmp/tf1017-tp2)/engine. Run from this repo's launch/.
-# The engine pin is branch head 2aa3c47 (2026-10-23); patches/ holds 0001-0004 (0004 re-ports the shortest-waiting-first
+# The engine pin is branch head 2aa3c47 (2026-10-23); patches/ holds 0001-0005 (0004 re-ports the shortest-waiting-first
 # prompt scheduling that upstream's a27d2f00 did not take). To go back to the 3ff3b2a pin with patches 0004-0007, see ROLLBACK.md.
 set -e
 here=$(cd "$(dirname "$0")" && pwd)

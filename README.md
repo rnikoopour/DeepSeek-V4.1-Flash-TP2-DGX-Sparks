@@ -6,7 +6,7 @@ DGX Sparks (GB10, tensor parallel over the direct QSFP link), with LibertAI's 2.
 
 This is a trimmed fork of [tonyd2wild/DeepSeek-V4.1-Flash-TP2-and-TP4-DGX-Sparks](https://github.com/tonyd2wild/DeepSeek-V4.1-Flash-TP2-and-TP4-DGX-Sparks).
 It keeps only that repository's TP2 lane. Its two daily-use fixes started as local engine patches and are now upstream in
-`bertholomus/TensorFold`'s `deepseek-v41-zig` branch, so the lane runs branch head and carries four patches (0001-0004) instead of seven:
+`bertholomus/TensorFold`'s `deepseek-v41-zig` branch, so the lane runs branch head and carries five patches (0001-0005) instead of seven:
 
 1. **A long chat with an image re-read its whole context every turn.** The engine's prompt cache matched kept states by
    token ids, and every image is its placeholder token repeated, so any request holding an image skipped the cache. Now
@@ -29,6 +29,7 @@ throughput numbers come from one session on one freshly rebooted pair (next sect
 | Patch `0002` | opt-in per-request sampling seed and `top_k` handling (`TF_SEED_RANDOM`, `TF_TOP_K_MAX`) | reproducible sampling when asked for; no effect at defaults |
 | Patch `0003` | `tf-dsv41-rank-cache` and `tf-dsv41-check` take one or two ranks (the four-node parity split is not here) | rank-cache building on this pair; needed to serve |
 | Patch `0004` | upstream took the chunked pass (`a27d2f00`) but not shortest-waiting-first scheduling | a prompt arriving mid-pass joins it, shortest waiting goes first: 0.84 s TTFT sent 2 s into a 44K pass; 213 unit tests pass |
+| Patch `0005` | a pass resumed from a kept state still ran every image of the prompt through the vision tower and sent its rows to rank 1, though it only reads from the kept state's chunk end on: ~0.75 s an image every turn (15.4 s for a 1.6K-token turn with 20 screenshots cached) | images wholly before the resume point make no rows; their positions are still marked |
 | `TF_FILL_CHUNKS=1` | one long cold pass ran whole and stalled every other stream on the pair | other streams keep decoding; prefill costs nothing (whole pass within 0.3% of chunked) |
 | `TF_DS_ENGRAM_LEAD=1` | on the old pin each Engram layer read its next chunk's rows twice (1,411 tok/s at 8K) | pre-reboot +11-13% (8K 1,411&rarr;1,569, 32K 1,413&rarr;1,602); after a reboot every config already reads 2,400+, so it costs nothing and only pays on a fragmented boot |
 | `--max-tokens 131072` | thinking counts against the cap, so 32,768 could truncate a long turn before its answer | no throughput cost; long reasoning turns fit |
@@ -71,7 +72,7 @@ The stock lane's other numbers (73.1 tok/s at 1 user, 135.8 at 4, 1M-token needl
 
 | piece | source |
 |---|---|
-| engine | [bertholomus/TensorFold](https://github.com/bertholomus/TensorFold) branch `deepseek-v41-zig` at `2aa3c47` (branch head, 2026-10-23; a fork of [ashhart/TensorFold](https://github.com/ashhart/TensorFold), Apache-2.0) + [patches/](patches/) `0001`-`0004` |
+| engine | [bertholomus/TensorFold](https://github.com/bertholomus/TensorFold) branch `deepseek-v41-zig` at `2aa3c47` (branch head, 2026-10-23; a fork of [ashhart/TensorFold](https://github.com/ashhart/TensorFold), Apache-2.0) + [patches/](patches/) `0001`-`0005` |
 | kernel kit | `kit/` of [bertholomus/DeepSeek-V4.1-Flash-TensorFold-TP2-2xGB10](https://huggingface.co/bertholomus/DeepSeek-V4.1-Flash-TensorFold-TP2-2xGB10) (the Hugging Face mirror of [bertholomus/deepseek-v4.1-tensorfold-tp2-2xgb10](https://github.com/bertholomus/deepseek-v4.1-tensorfold-tp2-2xgb10) v0.6.1, generated files included) |
 | weights | [LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw](https://huggingface.co/LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw) (MIT, 196.3 GiB; 98.9 GiB of weights per node) |
 | Engram tables | shards 47 and 48 of [deepseek-ai/DeepSeek-V4.1-Flash-1017](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017) (MIT, 2 x 101.5 GB) on each node |
@@ -147,7 +148,7 @@ still has a `tp2-lane` container).
 
 ## Engine pin and patches
 
-`launch/setup.sh` checks out the branch-head pin `2aa3c47` and applies `patches/0001`-`0004` as commits; `launch/run_build.sh`
+`launch/setup.sh` checks out the branch-head pin `2aa3c47` and applies `patches/0001`-`0005` as commits; `launch/run_build.sh`
 builds it and `launch/install_engine.sh` installs into `BASE/engine-bin`. Nothing in that path overwrites an existing
 build elsewhere.
 
@@ -157,7 +158,7 @@ prompts drafted, concurrent == solo, 9 image prompts alone, 18 image requests fo
 
 ## Verification (2026-10-23)
 
-Engine `2aa3c47` + patches `0001`-`0004`, with `TF_FILL_CHUNKS=1`, `TF_DS_ENGRAM_LEAD=1`, `--max-tokens 131072` and
+Engine `2aa3c47` + patches `0001`-`0004` (`0005` came after these numbers and does not change a cold pass), with `TF_FILL_CHUNKS=1`, `TF_DS_ENGRAM_LEAD=1`, `--max-tokens 131072` and
 `--prompt-cache-gib 3`.
 
 | Gate | Result |
