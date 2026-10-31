@@ -306,7 +306,7 @@ reboot. Also measured: the Engram reads are ~100K 4 KiB O_DIRECT reads a second 
 2026-10-31 before the reboot (7 d 15 h up, the lane 33 h up) the GPU drew 79.7 W at 2,418 MHz under load, so that boot
 showed no sign of #127's power state.
 
-No measurements of the slow state were kept, so `dgx-spark-management/opt/perf-canary` now records them: every 3 h each
+No measurements of the slow state were kept, so a probe on both nodes now records them: every 3 h each
 node logs its GPU power, SM clock and utilization under load, MemFree, swap, direct-reclaim and compaction counters, the
 Normal zone's free Unmovable blocks and the lane's start time, and rank 0 times a fixed cache-busted 32K prompt when the lane
 is idle. When prefill falls, the log says which it tracks: power at a held clock (a GPU state), lane restarts with growing
