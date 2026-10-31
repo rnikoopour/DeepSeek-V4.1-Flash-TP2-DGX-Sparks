@@ -35,7 +35,7 @@ throughput numbers come from one session on one freshly rebooted pair (next sect
 | `TF_DS_ENGRAM_LEAD=1` | on the old pin each Engram layer read its next chunk's rows twice (1,411 tok/s at 8K) | pre-reboot +11-13% (8K 1,411&rarr;1,569, 32K 1,413&rarr;1,602); after a reboot every config already reads 2,400+, so it costs nothing and only pays on a fragmented boot |
 | `--max-tokens 131072` | thinking counts against the cap, so 32,768 could truncate a long turn before its answer | no throughput cost; long reasoning turns fit |
 | `--prompt-cache-gib 3` | the 1.5 GiB default fills on long sessions and starts evicting | more follow-ups hit cache; no throughput cost; 7.2 / 9.0 GiB free per rank against a 4 GiB floor |
-| Reboot both nodes before a benchmark or a launch (P0-4) | Unmovable pages fragment after days of uptime: 238-242 GB/s against 262 GB/s | prefill 1,411-1,602 &rarr; 2,400-2,460 tok/s on every config, including the old engine; decode unchanged |
+| Reboot both nodes before a benchmark or a launch (P0-4) | prefill reads 1,411-1,602 tok/s after days of uptime and 2,400+ after a reboot; **cause not established** (see below) | prefill 1,411-1,602 &rarr; 2,400-2,460 tok/s on every config, including the old engine; decode unchanged |
 | EAQ v1 2.9 bpw pack &mdash; rejected | same size, +0.36 points of top-1 agreement and &minus;0.0017 nats KL | below the resolution of the 69-scenario eval; costs a 196 GiB re-download and a draft-head bits change that can lower acceptance, so it is not taken |
 
 ## Results
@@ -205,7 +205,7 @@ The recipe's engine (`ce20a545`) builds but cannot load this lane's kit (`VerbsF
 verbs), so it looked like the figure came from another engine + kit + pack era. In other words: the 1.4K was real and
 fixed by `45c25b1b` + the flag; the remaining 27% turned out to be memory fragmentation, see the correction below.
 
-**Corrected 2026-10-23, after the reboot.** The 27% was not another era: it was memory fragmentation. On a freshly
+**Corrected 2026-10-23, after the reboot.** The 27% was not another era: a reboot removes it. (It was put down to memory fragmentation; that is not established, see *The uptime slowdown* below.) On a freshly
 rebooted pair every config, including `3ff3b2a`, prefills at 2,400-2,460 tok/s at 8K and 32K, above the recipe's 2,189.
 Before the reboot the same lane read 1,411-1,602. The bisect still stands — no commit between the old pin and head moves
 prefill — and the lead flag only helps on a fragmented boot. See the four-config comparison below.
@@ -279,3 +279,20 @@ streams keep decoding between them.
 This repository's own files are MIT ([LICENSE](LICENSE), from the upstream repository). The patches are changes to
 TensorFold and are Apache-2.0, as is the engine they build; see [NOTICE](NOTICE). The weights are MIT. Credits for
 everyone this lane builds on are in [CREDITS.md](CREDITS.md).
+
+## The uptime slowdown (2026-10-31): what is known
+
+Prefill falls from ~2,400 to ~1,400-1,600 tok/s over days of uptime; decode does not move, and a reboot restores it
+(2026-10-23 and 2026-10-31, both warm reboots). The fragmentation explanation above came from another write-up's figures
+(238-242 against 262 GB/s); that write-up measured fragmentation costing 3-5% of *decode* a relaunch, with prefill flat
+within 1.5%, so it cannot be a 40% prefill loss here. The closest match is NVIDIA/dgx-spark-playbooks#127 (TensorFold,
+TP2, 1M window: prefill -34%, decode -7%, power ~55 W at a full SM clock), and this lane's pre-reboot note fits it: 60-64 W
+at 2.48-2.50 GHz against 68-83 W on the fresh boot. But that issue reports warm reboots do *not* clear it and blames driver
+580.159.03, while this pair runs 580.178.04 and warm reboots did clear it, so it may not be the same fault.
+
+No measurements of the slow state were kept, so `dgx-spark-management/opt/perf-canary` now records them: every 3 h each
+node logs its GPU power, SM clock and utilization under load, MemFree, swap, direct-reclaim and compaction counters, the
+Normal zone's free Unmovable blocks and the lane's start time, and rank 0 times a fixed cache-busted 32K prompt when the lane
+is idle. When prefill falls, the log says which it tracks: power at a held clock (a GPU state), lane restarts with growing
+Unmovable holes (fragmentation), or swap and reclaim (memory pressure).
+
