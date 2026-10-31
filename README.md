@@ -290,6 +290,22 @@ TP2, 1M window: prefill -34%, decode -7%, power ~55 W at a full SM clock), and t
 at 2.48-2.50 GHz against 68-83 W on the fresh boot. But that issue reports warm reboots do *not* clear it and blames driver
 580.159.03, while this pair runs 580.178.04 and warm reboots did clear it, so it may not be the same fault.
 
+**Memory state at lane start, ruled out (2026-10-31).** Cold prefill of random words on an idle lane, three reps each,
+the lane restarted between rows with `update-spark`:
+
+| Lane started into | 8K tok/s | 32K tok/s |
+|---|---|---|
+| a fresh boot | 2,281-2,317 | 2,340-2,347 |
+| 122 GiB of page cache (the unused pack read in after the lane stopped; 1.9 GiB free) | 2,230-2,296 | 2,312-2,361 |
+| the same plus 1 GiB of page tables held while it loaded (unmovable, placed while memory was full) | 2,233-2,317 | 2,345-2,380 |
+
+So a lane started into scattered memory reads as fast as one on a fresh boot, which fits the 2026-10-23 bisect: there
+every lane restart within the slow boot stayed slow. Whatever holds the slow state survives a lane restart but not a
+reboot. Also measured: the Engram reads are ~100K 4 KiB O_DIRECT reads a second during a cold pass (~49 a token), at
+12% of the NVMe's time and 0.5 ms each, the same before and after the 2026-10-31 reboot; the CPU is ~85% idle; and on
+2026-10-31 before the reboot (7 d 15 h up, the lane 33 h up) the GPU drew 79.7 W at 2,418 MHz under load, so that boot
+showed no sign of #127's power state.
+
 No measurements of the slow state were kept, so `dgx-spark-management/opt/perf-canary` now records them: every 3 h each
 node logs its GPU power, SM clock and utilization under load, MemFree, swap, direct-reclaim and compaction counters, the
 Normal zone's free Unmovable blocks and the lane's start time, and rank 0 times a fixed cache-busted 32K prompt when the lane
